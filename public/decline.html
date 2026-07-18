@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Decline Invitation — Wine Circle</title>
+  <style>
+    :root {
+      --burgundy: #6b1f2c;
+      --burgundy-dark: #4a1520;
+      --cream: #fef7f4;
+      --ink: #2a2a2a;
+      --muted: #6b6b6b;
+      --line: #e6dcd6;
+      --warn-bg: #fff4e0;
+      --warn-border: #d99a3e;
+      --ok-bg: #e9f5ec;
+      --ok-border: #4a8a5a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      margin: 0; color: var(--ink); background: var(--cream); line-height: 1.5;
+    }
+    header {
+      background: var(--burgundy); color: white;
+      padding: 14px 20px; display: flex; align-items: center;
+    }
+    header h1 { margin: 0; font-size: 18px; font-weight: 500; letter-spacing: 0.3px; }
+    main { max-width: 520px; margin: 40px auto; padding: 0 20px 60px; }
+    .card {
+      background: white; border: 1px solid var(--line);
+      border-radius: 6px; padding: 24px; margin-bottom: 16px;
+    }
+    .card h2 { margin: 0 0 8px; font-size: 20px; }
+    .card p { margin: 0 0 12px; font-size: 15px; color: var(--ink); }
+    .card .meta { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
+    .small { font-size: 13px; color: var(--muted); }
+    .btn {
+      background: var(--burgundy); color: white; border: none;
+      padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 500;
+    }
+    .btn:hover:not(:disabled) { background: var(--burgundy-dark); }
+    .btn:disabled { background: #b8a8aa; cursor: not-allowed; }
+    .btn.danger { background: #b3261e; }
+    .btn.danger:hover:not(:disabled) { background: #8c1a14; }
+    .warn-box {
+      background: var(--warn-bg); border-left: 4px solid var(--warn-border);
+      padding: 12px 14px; border-radius: 3px; margin-bottom: 16px; font-size: 14px;
+    }
+    .ok-box {
+      background: var(--ok-bg); border-left: 4px solid var(--ok-border);
+      padding: 12px 14px; border-radius: 3px; margin-bottom: 16px; font-size: 14px;
+    }
+    .err-box {
+      background: #fde8e8; border-left: 4px solid #b3261e;
+      padding: 12px 14px; border-radius: 3px; font-size: 14px;
+    }
+    .spinner {
+      display: inline-block; width: 13px; height: 13px;
+      border: 2px solid rgba(255,255,255,0.4); border-top-color: white;
+      border-radius: 50%; animation: spin 0.7s linear infinite;
+      vertical-align: middle; margin-right: 5px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #loading { color: var(--muted); font-size: 15px; text-align: center; padding: 40px 0; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1 id="org-name">Wine Circle</h1>
+  </header>
+  <main>
+    <div id="loading">Processing…</div>
+    <div id="invite-view" style="display:none"></div>
+    <div id="result-view" style="display:none"></div>
+  </main>
+
+<script>
+  var declineToken = null;
+  var inviteData = null;
+  var settings = {};
+
+  document.addEventListener('DOMContentLoaded', async function () {
+    // Get token from query string
+    var params = new URLSearchParams(window.location.search);
+    declineToken = params.get('token');
+
+    // Load public settings
+    try {
+      var s = await apiFetch('/api/settings/public', 'GET');
+      settings = s;
+      if (s.org_name) {
+        document.getElementById('org-name').textContent = s.org_name;
+        document.title = 'Decline Invitation — ' + s.org_name;
+      }
+    } catch (e) { /* non-fatal */ }
+
+    if (!declineToken) {
+      showError('No invite token found in this link. Please use the link from your invitation email.');
+      return;
+    }
+
+    // Fetch invite details to show confirmation before submitting
+    try {
+      var res = await apiFetch('/api/signups/by-token/' + encodeURIComponent(declineToken), 'GET');
+      inviteData = res.invite;
+      showInviteView(inviteData);
+    } catch (e) {
+      showError(e.message || 'This invite link is invalid or has already been used.');
+    }
+  });
+
+  function showInviteView(invite) {
+    document.getElementById('loading').style.display = 'none';
+    var view = document.getElementById('invite-view');
+    view.style.display = 'block';
+
+    if (invite.status !== 'Invited') {
+      // Already handled or not yet invited
+      var statusMsg = {
+        'Dropped':  'You have already declined this invitation.',
+        'Flaked':   'This invitation was already declined (counted as a flake).',
+        'Attended': 'You attended this event — no action needed.',
+        'Pending':  'The lottery hasn\'t run yet — you\'re on the signup list, not yet invited.',
+        'Waitlist': 'You\'re on the waitlist for this event. Once promoted to Invited, you\'ll receive a new link.',
+      }[invite.status] || ('Current status: ' + invite.status + '. No action needed.');
+
+      view.innerHTML =
+        '<div class="card">' +
+          '<h2>' + esc(invite.event_name || invite.event_id) + '</h2>' +
+          '<p class="meta">' + fmtDate(invite.event_date) + (invite.location ? ' · ' + esc(invite.location) : '') + '</p>' +
+          '<div class="ok-box">' + esc(statusMsg) + '</div>' +
+          '<p class="small">You can close this tab.</p>' +
+        '</div>';
+      return;
+    }
+
+    // Check if late decline
+    var graceHours = parseInt(settings.decline_grace_window_hours) || 24;
+    var feeAmt = settings.flake_fee_amount || '30';
+    var isLate = false;
+    if (invite.event_date) {
+      var diff = new Date(invite.event_date) - new Date();
+      isLate = diff >= 0 && diff < graceHours * 60 * 60 * 1000;
+    }
+
+    var lateWarning = isLate
+      ? '<div class="warn-box">⚠️ This decline is within ' + graceHours + ' hours of the event start. ' +
+        'It will count as a flake and a $' + feeAmt + ' fee will be added to your account.</div>'
+      : '';
+
+    view.innerHTML =
+      '<div class="card">' +
+        '<h2>Decline invitation to:</h2>' +
+        '<p style="font-size:18px;font-weight:600;margin:0 0 4px">' + esc(invite.event_name || invite.event_id) + '</p>' +
+        '<p class="meta">' + fmtDate(invite.event_date) + (invite.location ? ' · ' + esc(invite.location) : '') + '</p>' +
+        (invite.description ? '<p style="font-size:14px;color:#555;margin-bottom:12px">' + esc(invite.description) + '</p>' : '') +
+        lateWarning +
+        '<p>Are you sure you want to decline this invitation?</p>' +
+        '<button class="btn danger" id="decline-btn" onclick="submitDecline()">' +
+          (isLate ? 'Yes, I understand — decline' : 'Yes, decline') +
+        '</button>' +
+        '<p class="small" style="margin-top:12px">Changed your mind? Simply close this tab.</p>' +
+      '</div>';
+  }
+
+  async function submitDecline() {
+    var btn = document.getElementById('decline-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>Declining…';
+
+    try {
+      var res = await apiFetch('/api/signups/decline-by-token', 'POST', { token: declineToken });
+      showResult(res);
+    } catch (e) {
+      showError(e.message || 'Something went wrong. Please try again or contact leadership.');
+    }
+  }
+
+  function showResult(res) {
+    document.getElementById('invite-view').style.display = 'none';
+    var view = document.getElementById('result-view');
+    view.style.display = 'block';
+
+    var title, body, isWarn = false;
+    if (res.alreadyHandled) {
+      title = 'Already handled';
+      body = 'This invitation was already declined or its status changed (current: ' + (res.status || 'unknown') + ').';
+    } else if (res.status === 'Dropped') {
+      title = 'You\'re out — thanks for letting us know';
+      body = 'You\'ve been removed from the event. If a waitlist promotion follows, the next person will be notified shortly.';
+    } else if (res.status === 'Flaked') {
+      title = 'Decline received — but within the window';
+      body = 'You declined within ' + (settings.decline_grace_window_hours || 24) + ' hours of the event start, so this counts as a flake. ' +
+             'A $' + (settings.flake_fee_amount || '30') + ' fee has been added to your account. You\'ll receive an email with payment details.';
+      isWarn = true;
+    } else {
+      title = 'Decline recorded';
+      body = 'Status: ' + (res.status || 'processed');
+    }
+
+    view.innerHTML =
+      '<div class="card">' +
+        '<h2>' + esc(title) + '</h2>' +
+        '<div class="' + (isWarn ? 'warn-box' : 'ok-box') + '">' + esc(body) + '</div>' +
+        '<p class="small">You can close this tab.</p>' +
+      '</div>';
+  }
+
+  function showError(msg) {
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('invite-view').style.display = 'none';
+    document.getElementById('result-view').style.display = 'none';
+    document.body.insertAdjacentHTML('beforeend',
+      '<div style="max-width:520px;margin:40px auto;padding:0 20px">' +
+        '<div class="err-box">' + esc(msg) + '</div>' +
+      '</div>'
+    );
+  }
+
+  async function apiFetch(path, method, body) {
+    var opts = { method: method || 'GET', headers: { 'Content-Type': 'application/json' } };
+    if (body) opts.body = JSON.stringify(body);
+    var res = await fetch(path, opts);
+    var data;
+    try { data = await res.json(); } catch (e) { data = {}; }
+    if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+    return data;
+  }
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function fmtDate(d) {
+    if (!d) return '';
+    try {
+      return new Date(d).toLocaleDateString('en-US', {
+        weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+        timeZone: 'America/Los_Angeles',
+      });
+    } catch (e) { return String(d); }
+  }
+</script>
+</body>
+</html>

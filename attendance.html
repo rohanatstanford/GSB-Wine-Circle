@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font-family: -apple-system, sans-serif; margin: 12px; font-size: 14px; }
+    h2 { margin: 0 0 12px; font-size: 16px; }
+    .row {
+      display: flex; align-items: center; padding: 8px 6px;
+      border-bottom: 1px solid #eee;
+    }
+    .row .name { flex: 1; }
+    .row .email { color: #888; font-size: 12px; }
+    .pill { font-size: 11px; padding: 2px 8px; border-radius: 10px; margin-right: 8px; }
+    .pill.invited  { background: #e8eef8; color: #2a4a8a; }
+    .pill.attended { background: #e9f5ec; color: #2a6638; }
+    input[type=checkbox] { transform: scale(1.3); margin-left: 8px; }
+    #status { margin-top: 12px; color: #888; font-size: 12px; min-height: 16px; }
+  </style>
+</head>
+<body>
+  <h2 id="title">Loading…</h2>
+  <div id="list">Loading…</div>
+  <div id="status"></div>
+<script>
+  var EVENT_ID   = '<?= eventId ?>';
+  var EVENT_NAME = '<?= eventName ?>';
+
+  document.addEventListener('DOMContentLoaded', function() {
+    document.getElementById('title').textContent = EVENT_NAME + ' — attendance';
+    refresh();
+  });
+
+  function refresh() {
+    google.script.run
+      .withSuccessHandler(render)
+      .withFailureHandler(function(err) {
+        document.getElementById('list').textContent = String(err.message || err);
+      })
+      .attendanceList(EVENT_ID);
+  }
+
+  function render(items) {
+    if (!items || items.length === 0) {
+      document.getElementById('list').textContent = 'No invited members yet. Run the lottery first.';
+      return;
+    }
+    var html = items.map(function(it) {
+      var checked = it.status === 'Attended' ? 'checked' : '';
+      var pill = it.status === 'Attended'
+        ? '<span class="pill attended">Attended</span>'
+        : '<span class="pill invited">Invited</span>';
+      return '<div class="row">' +
+        '<div class="name"><div>' + escapeHtml(it.name) + '</div>' +
+          '<div class="email">' + escapeHtml(it.email) + '</div></div>' +
+        pill +
+        '<input type="checkbox" ' + checked + ' data-id="' + escapeHtml(it.signup_id) + '" onchange="toggle(this)">' +
+      '</div>';
+    }).join('');
+    document.getElementById('list').innerHTML = html;
+  }
+
+  function toggle(cb) {
+    var id = cb.getAttribute('data-id');
+    var attended = cb.checked;
+    document.getElementById('status').textContent = 'Saving…';
+    google.script.run
+      .withSuccessHandler(function() {
+        document.getElementById('status').textContent = 'Saved.';
+        setTimeout(function(){ document.getElementById('status').textContent = ''; }, 1500);
+      })
+      .withFailureHandler(function(err) {
+        document.getElementById('status').textContent = 'Error: ' + String(err.message || err);
+        cb.checked = !attended;
+      })
+      .attendanceMark(id, attended);
+  }
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+</script>
+</body>
+</html>

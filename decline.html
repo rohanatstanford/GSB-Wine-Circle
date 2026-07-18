@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <?!= include('_Stylesheet'); ?>
+</head>
+<body>
+  <header class="wc-header">
+    <h1><?= orgName ?></h1>
+  </header>
+  <main>
+    <div id="loading" class="card">
+      <p>Processing your decline…</p>
+    </div>
+    <div id="result" class="card" style="display:none">
+      <h3 id="result-title"></h3>
+      <p id="result-body"></p>
+      <p class="small">You can close this tab.</p>
+    </div>
+  </main>
+
+<script>
+  var token = '<?= token ?>';
+  document.addEventListener('DOMContentLoaded', function() {
+    google.script.run
+      .withSuccessHandler(function(res) {
+        document.getElementById('loading').style.display = 'none';
+        var title, body;
+        if (res.alreadyHandled) {
+          title = 'Already handled';
+          body = 'This invitation was already declined or its status changed (current: ' + res.status + ').';
+        } else if (res.status === 'Dropped') {
+          title = "You're out — thanks for letting us know";
+          body = 'You\'ve been removed from "' + res.eventName + '". If a waitlist promotion follows, the next person will be notified shortly.';
+        } else if (res.status === 'Flaked') {
+          title = 'Decline received — but within the 24-hour window';
+          body = 'You declined "' + res.eventName + '" within ' + 24 + ' hours of the start, so this counts as a flake. A $30 fee has been added to your account. You\'ll get an email with payment details.';
+        } else {
+          title = 'Decline recorded';
+          body = 'Status: ' + res.status;
+        }
+        document.getElementById('result-title').textContent = title;
+        document.getElementById('result-body').textContent = body;
+        document.getElementById('result').style.display = 'block';
+      })
+      .withFailureHandler(function(err) {
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('result-title').textContent = 'Couldn\'t process this link';
+        document.getElementById('result-body').textContent = String(err.message || err);
+        document.getElementById('result').style.display = 'block';
+      })
+      .rpcDeclineByToken(token);
+  });
+</script>
+</body>
+</html>

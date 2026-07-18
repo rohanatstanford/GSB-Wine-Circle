@@ -1,0 +1,124 @@
+<style>
+  :root {
+    --burgundy: #6b1f2c;
+    --burgundy-dark: #4a1520;
+    --cream: #fef7f4;
+    --ink: #2a2a2a;
+    --muted: #6b6b6b;
+    --line: #e6dcd6;
+    --warn-bg: #fff4e0;
+    --warn-border: #d99a3e;
+    --ok-bg: #e9f5ec;
+    --ok-border: #4a8a5a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    margin: 0;
+    color: var(--ink);
+    background: var(--cream);
+    line-height: 1.5;
+  }
+  header.wc-header {
+    background: var(--burgundy);
+    color: white;
+    padding: 14px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  header.wc-header h1 { margin: 0; font-size: 18px; font-weight: 500; letter-spacing: 0.3px; }
+  header.wc-header .who { font-size: 13px; opacity: 0.9; }
+  header.wc-header a, header.wc-header button {
+    color: white; background: transparent; border: 1px solid rgba(255,255,255,0.4);
+    padding: 4px 10px; font-size: 12px; border-radius: 4px; cursor: pointer;
+    text-decoration: none; margin-left: 8px;
+  }
+  header.wc-header button:hover { background: rgba(255,255,255,0.1); }
+  main { max-width: 720px; margin: 0 auto; padding: 24px 20px 60px; }
+  h2 { font-size: 20px; margin: 32px 0 12px; font-weight: 600; }
+  h2:first-child { margin-top: 0; }
+  .section-empty { color: var(--muted); font-style: italic; padding: 16px 0; }
+  .card {
+    background: white;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 16px;
+    margin-bottom: 12px;
+  }
+  .card h3 { margin: 0 0 4px; font-size: 16px; font-weight: 600; }
+  .card .meta { color: var(--muted); font-size: 13px; margin-bottom: 8px; }
+  .card .desc { font-size: 14px; margin-bottom: 12px; }
+  .btn {
+    background: var(--burgundy);
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+  }
+  .btn:hover:not(:disabled) { background: var(--burgundy-dark); }
+  .btn:disabled { background: #b8a8aa; cursor: not-allowed; }
+  .btn.secondary {
+    background: white; color: var(--burgundy); border: 1px solid var(--burgundy);
+  }
+  .btn.secondary:hover:not(:disabled) { background: #f0e0e2; }
+  .pill {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+    margin-left: 8px;
+    vertical-align: middle;
+  }
+  .pill.invited  { background: #e9f5ec; color: #2a6638; }
+  .pill.waitlist { background: #fff4e0; color: #8a5a1a; }
+  .pill.signed-up{ background: #e8eef8; color: #2a4a8a; }
+  .banner {
+    background: var(--warn-bg);
+    border-left: 4px solid var(--warn-border);
+    padding: 12px 16px;
+    margin: 0 0 20px;
+    border-radius: 4px;
+  }
+  .banner.ok { background: var(--ok-bg); border-left-color: var(--ok-border); }
+  .banner a { color: inherit; }
+  .charge-list { margin: 8px 0 4px; font-size: 14px; }
+  .charge-list-label { color: var(--muted); font-size: 13px; margin-bottom: 2px; }
+  .charge-list ul { margin: 0; padding-left: 20px; }
+  .charge-list li { margin: 2px 0; }
+  .banner-actions { margin-top: 8px; font-size: 14px; }
+  .banner-contact { margin-top: 6px; font-size: 13px; color: var(--muted); }
+  .banner-contact a { color: var(--burgundy); text-decoration: none; }
+  .banner-contact a:hover { text-decoration: underline; }
+  .login-box {
+    max-width: 380px; margin: 60px auto;
+    background: white; border: 1px solid var(--line);
+    border-radius: 8px; padding: 28px;
+  }
+  .login-box h1 { font-size: 22px; margin: 0 0 6px; color: var(--burgundy); }
+  .login-box p { color: var(--muted); font-size: 14px; margin: 0 0 20px; }
+  input[type=email], input[type=text] {
+    width: 100%; padding: 10px 12px;
+    border: 1px solid var(--line); border-radius: 4px;
+    font-size: 15px; margin-bottom: 12px;
+  }
+  input[type=email]:focus, input[type=text]:focus {
+    outline: none; border-color: var(--burgundy);
+  }
+  .login-box .btn { width: 100%; padding: 12px; font-size: 15px; }
+  .err { color: #b3261e; font-size: 13px; margin: 8px 0; min-height: 16px; }
+  .ok-msg { color: #2a6638; font-size: 13px; margin: 8px 0; min-height: 16px; }
+  .spinner {
+    display: inline-block; width: 14px; height: 14px;
+    border: 2px solid rgba(255,255,255,0.4); border-top-color: white;
+    border-radius: 50%; animation: spin 0.7s linear infinite;
+    vertical-align: middle; margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .small { font-size: 13px; color: var(--muted); }
+  hr { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
+</style>

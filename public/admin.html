@@ -1,0 +1,1665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Wine Circle — Admin</title>
+  <style>
+    /* ── Reset & base ─────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --wine:      #7b1d36;
+      --wine-dk:   #5a1427;
+      --wine-lt:   #a3354f;
+      --gold:      #c9a84c;
+      --gold-lt:   #e8d5a3;
+      --bg:        #f7f4f1;
+      --surface:   #ffffff;
+      --border:    #e0d8d0;
+      --text:      #1e1410;
+      --muted:     #7a6b60;
+      --danger:    #c0392b;
+      --success:   #27ae60;
+      --warning:   #e67e22;
+      --info:      #2980b9;
+      --sidebar-w: 220px;
+      --header-h:  56px;
+      --radius:    8px;
+      --shadow:    0 1px 4px rgba(0,0,0,.10);
+    }
+    body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5; }
+    a { color: var(--wine); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    input, select, textarea {
+      font: inherit; border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 7px 10px; width: 100%; background: var(--surface);
+      transition: border-color .15s;
+    }
+    input:focus, select:focus, textarea:focus { outline: none; border-color: var(--wine); }
+    label { font-size: 12px; font-weight: 600; color: var(--muted); display: block; margin-bottom: 4px; }
+    button { font: inherit; cursor: pointer; border: none; border-radius: var(--radius); padding: 8px 16px; transition: background .15s, opacity .15s; }
+    button:disabled { opacity: .55; cursor: not-allowed; }
+    .btn-primary   { background: var(--wine);    color: #fff; }
+    .btn-primary:hover:not(:disabled)   { background: var(--wine-dk); }
+    .btn-secondary { background: var(--border);  color: var(--text); }
+    .btn-secondary:hover:not(:disabled) { background: #ccc8c2; }
+    .btn-danger    { background: var(--danger);  color: #fff; }
+    .btn-danger:hover:not(:disabled)    { background: #a93226; }
+    .btn-success   { background: var(--success); color: #fff; }
+    .btn-success:hover:not(:disabled)   { background: #219a52; }
+    .btn-warning   { background: var(--warning); color: #fff; }
+    .btn-warning:hover:not(:disabled)   { background: #ca6f1e; }
+    .btn-sm { padding: 4px 10px; font-size: 12px; }
+    .btn-icon { background: none; color: var(--wine); padding: 4px 6px; }
+    .btn-icon:hover { background: var(--bg); }
+
+    /* ── Login screen ─────────────────────────────────────────────────────── */
+    #screen-login {
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    }
+    .login-card {
+      background: var(--surface); border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,.12);
+      padding: 40px 36px; width: 380px; max-width: 95vw;
+    }
+    .login-logo { text-align: center; margin-bottom: 28px; }
+    .login-logo h1 { color: var(--wine); font-size: 22px; font-weight: 700; }
+    .login-logo p  { color: var(--muted); font-size: 13px; margin-top: 4px; }
+    .login-step { display: none; }
+    .login-step.active { display: block; }
+    .form-group { margin-bottom: 16px; }
+    .login-card .btn-primary { width: 100%; margin-top: 4px; padding: 10px; font-size: 15px; }
+    .login-hint { text-align: center; font-size: 12px; color: var(--muted); margin-top: 14px; }
+
+    /* ── App shell ────────────────────────────────────────────────────────── */
+    #app { display: none; min-height: 100vh; flex-direction: column; }
+    #app.ready { display: flex; }
+
+    /* Header */
+    .app-header {
+      height: var(--header-h); background: var(--wine); color: #fff;
+      display: flex; align-items: center; padding: 0 20px; gap: 12px;
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      box-shadow: 0 2px 8px rgba(0,0,0,.2);
+    }
+    .app-header h1 { font-size: 16px; font-weight: 700; flex: 1; }
+    .app-header .user-info { font-size: 12px; opacity: .85; }
+    .app-header .btn-logout { background: rgba(255,255,255,.15); color: #fff; font-size: 12px; padding: 5px 12px; }
+    .app-header .btn-logout:hover { background: rgba(255,255,255,.25); }
+
+    /* Sidebar */
+    .app-body { display: flex; margin-top: var(--header-h); flex: 1; }
+    .sidebar {
+      width: var(--sidebar-w); background: var(--surface); border-right: 1px solid var(--border);
+      position: fixed; top: var(--header-h); bottom: 0; overflow-y: auto;
+    }
+    .sidebar nav { padding: 12px 0; }
+    .nav-item {
+      display: flex; align-items: center; gap: 10px; padding: 10px 20px;
+      color: var(--text); font-size: 13px; font-weight: 500; cursor: pointer;
+      border-left: 3px solid transparent; transition: all .15s;
+    }
+    .nav-item:hover { background: var(--bg); color: var(--wine); }
+    .nav-item.active { border-left-color: var(--wine); background: #faf0f2; color: var(--wine); font-weight: 700; }
+    .nav-item .nav-icon { font-size: 16px; width: 20px; text-align: center; }
+    .nav-divider { border: none; border-top: 1px solid var(--border); margin: 8px 16px; }
+
+    /* Main content */
+    .main-content {
+      margin-left: var(--sidebar-w); flex: 1; padding: 24px;
+      min-height: calc(100vh - var(--header-h));
+    }
+
+    /* ── Pages ────────────────────────────────────────────────────────────── */
+    .page { display: none; }
+    .page.active { display: block; }
+    .page-header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+    .page-header h2 { font-size: 20px; font-weight: 700; color: var(--wine); flex: 1; }
+    .page-header .actions { display: flex; gap: 8px; }
+
+    /* ── Cards ────────────────────────────────────────────────────────────── */
+    .card {
+      background: var(--surface); border-radius: var(--radius); border: 1px solid var(--border);
+      box-shadow: var(--shadow);
+    }
+    .card-body { padding: 16px; }
+    .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; text-align: center; box-shadow: var(--shadow); }
+    .stat-card .stat-value { font-size: 28px; font-weight: 700; color: var(--wine); }
+    .stat-card .stat-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+    /* ── Tables ───────────────────────────────────────────────────────────── */
+    .table-wrap { overflow-x: auto; border-radius: var(--radius); }
+    table { width: 100%; border-collapse: collapse; background: var(--surface); }
+    thead th { background: var(--bg); font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .05em; color: var(--muted); padding: 10px 12px; text-align: left;
+      border-bottom: 1px solid var(--border); white-space: nowrap; }
+    tbody tr { border-bottom: 1px solid var(--border); transition: background .1s; }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: #fdf9f6; }
+    td { padding: 10px 12px; vertical-align: middle; }
+    .td-actions { white-space: nowrap; display: flex; gap: 4px; }
+
+    /* ── Badges ───────────────────────────────────────────────────────────── */
+    .badge {
+      display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px;
+      font-weight: 700; text-transform: uppercase; letter-spacing: .04em; white-space: nowrap;
+    }
+    .badge-draft      { background: #f0f0f0;   color: #666; }
+    .badge-open       { background: #d5f5e3;   color: #1a6e3a; }
+    .badge-closed     { background: #fdebd0;   color: #935116; }
+    .badge-lotteried  { background: #d6eaf8;   color: #1a5276; }
+    .badge-completed  { background: #e8daef;   color: #6c3483; }
+    .badge-cancelled  { background: #f9ebea;   color: #922b21; }
+    .badge-active     { background: #d5f5e3;   color: #1a6e3a; }
+    .badge-inactive   { background: #f0f0f0;   color: #666; }
+    .badge-blocked    { background: #f9ebea;   color: #922b21; }
+    .badge-pending    { background: #fef9e7;   color: #7d6608; }
+    .badge-invited    { background: #d6eaf8;   color: #1a5276; }
+    .badge-waitlist   { background: #fdebd0;   color: #935116; }
+    .badge-lost       { background: #f0f0f0;   color: #666; }
+    .badge-attended   { background: #d5f5e3;   color: #1a6e3a; }
+    .badge-flaked     { background: #f9ebea;   color: #922b21; }
+    .badge-dropped    { background: #f0f0f0;   color: #666; }
+    .badge-admin      { background: #e8daef;   color: #6c3483; }
+    .badge-sent       { background: #d5f5e3;   color: #1a6e3a; }
+    .badge-error      { background: #f9ebea;   color: #922b21; }
+    .badge-charge     { background: #f9ebea;   color: #922b21; }
+    .badge-payment    { background: #d5f5e3;   color: #1a6e3a; }
+    .badge-waiver     { background: #fef9e7;   color: #7d6608; }
+
+    /* ── Modal ────────────────────────────────────────────────────────────── */
+    .modal-overlay {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45);
+      z-index: 200; align-items: center; justify-content: center; padding: 20px;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: var(--surface); border-radius: 12px; width: 100%; max-width: 520px;
+      max-height: 90vh; overflow-y: auto; box-shadow: 0 8px 40px rgba(0,0,0,.2);
+    }
+    .modal-header {
+      padding: 18px 20px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 10px;
+    }
+    .modal-header h3 { font-size: 16px; font-weight: 700; flex: 1; }
+    .modal-close { background: none; border: none; font-size: 20px; color: var(--muted); cursor: pointer; padding: 0 4px; line-height: 1; }
+    .modal-close:hover { color: var(--text); }
+    .modal-body { padding: 20px; }
+    .modal-footer { padding: 16px 20px; border-top: 1px solid var(--border); display: flex; gap: 10px; justify-content: flex-end; }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .form-check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+    .form-check input[type=checkbox] { width: auto; cursor: pointer; }
+
+    /* ── Toast ────────────────────────────────────────────────────────────── */
+    #toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; }
+    .toast {
+      background: var(--text); color: #fff; border-radius: var(--radius);
+      padding: 10px 16px; font-size: 13px; max-width: 320px; box-shadow: 0 4px 12px rgba(0,0,0,.2);
+      animation: slideIn .2s ease; display: flex; align-items: center; gap: 10px;
+    }
+    .toast.success { background: var(--success); }
+    .toast.error   { background: var(--danger); }
+    .toast.warning { background: var(--warning); }
+    @keyframes slideIn { from { transform: translateX(40px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+    /* ── Alerts ───────────────────────────────────────────────────────────── */
+    .alert { padding: 12px 16px; border-radius: var(--radius); margin-bottom: 16px; font-size: 13px; }
+    .alert-error   { background: #fef0f0; border: 1px solid #f5c6c6; color: #8b2222; }
+    .alert-success { background: #f0fef4; border: 1px solid #bbf7d0; color: #166534; }
+    .alert-warning { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
+    .alert-info    { background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; }
+
+    /* ── Toolbar ──────────────────────────────────────────────────────────── */
+    .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+    .toolbar input[type=search] { max-width: 260px; }
+    .toolbar select { max-width: 160px; }
+    .toolbar .spacer { flex: 1; }
+
+    /* ── Pagination ───────────────────────────────────────────────────────── */
+    .pagination { display: flex; align-items: center; gap: 8px; margin-top: 14px; justify-content: center; }
+    .pagination button { min-width: 34px; }
+    .pagination .page-info { font-size: 13px; color: var(--muted); }
+
+    /* ── Attendance checklist ─────────────────────────────────────────────── */
+    .attendance-list { display: flex; flex-direction: column; gap: 8px; }
+    .attendance-item {
+      display: flex; align-items: center; gap: 12px; padding: 10px 14px;
+      background: var(--bg); border-radius: var(--radius); cursor: pointer; transition: background .1s;
+    }
+    .attendance-item:hover { background: var(--border); }
+    .attendance-item.attended { background: #d5f5e3; }
+    .attendance-item input[type=checkbox] { width: auto; cursor: pointer; transform: scale(1.3); }
+    .attendance-item .name { font-weight: 600; flex: 1; }
+    .attendance-item .sub { font-size: 12px; color: var(--muted); }
+
+    /* ── Event detail ─────────────────────────────────────────────────────── */
+    .event-meta { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .meta-item { padding: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+    .meta-item .meta-label { font-size: 11px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+    .meta-item .meta-value { font-size: 15px; font-weight: 600; margin-top: 2px; }
+    .action-bar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; padding: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+    .section-title { font-size: 14px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 12px; margin-top: 20px; }
+
+    /* ── Loading state ────────────────────────────────────────────────────── */
+    .loading-row td { text-align: center; padding: 32px; color: var(--muted); }
+    .spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid var(--border); border-top-color: var(--wine); border-radius: 50%; animation: spin .6s linear infinite; vertical-align: middle; margin-right: 6px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .empty-state { text-align: center; padding: 48px 20px; color: var(--muted); }
+    .empty-state .empty-icon { font-size: 40px; margin-bottom: 12px; }
+
+    /* ── Misc ─────────────────────────────────────────────────────────────── */
+    .text-muted  { color: var(--muted); }
+    .text-danger { color: var(--danger); }
+    .text-success{ color: var(--success); }
+    .text-right  { text-align: right; }
+    .monospace   { font-family: monospace; font-size: 12px; }
+    .back-link   { display: inline-flex; align-items: center; gap: 6px; color: var(--wine); font-size: 13px; margin-bottom: 16px; cursor: pointer; }
+    .back-link:hover { text-decoration: underline; }
+    .toggle-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+    .toggle-row label { margin: 0; font-size: 13px; color: var(--text); font-weight: 500; cursor: pointer; flex: 1; }
+    .toggle-switch { position: relative; width: 38px; height: 22px; }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider { position: absolute; inset: 0; background: var(--border); border-radius: 22px; cursor: pointer; transition: background .2s; }
+    .toggle-switch input:checked + .toggle-slider { background: var(--wine); }
+    .toggle-slider::before { content: ''; position: absolute; width: 16px; height: 16px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: transform .2s; }
+    .toggle-switch input:checked + .toggle-slider::before { transform: translateX(16px); }
+    .settings-list .toggle-row:last-child { border-bottom: none; }
+    .tab-bar { display: flex; gap: 0; border-bottom: 2px solid var(--border); margin-bottom: 20px; }
+    .tab-item { padding: 10px 20px; cursor: pointer; font-weight: 600; font-size: 13px; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -2px; }
+    .tab-item.active { color: var(--wine); border-bottom-color: var(--wine); }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    .fee-balance-positive { color: var(--danger); font-weight: 700; }
+  </style>
+</head>
+<body>
+
+<!-- ── Login Screen ──────────────────────────────────────────────────────── -->
+<div id="screen-login">
+  <div class="login-card">
+    <div class="login-logo">
+      <h1>🍷 Wine Circle</h1>
+      <p>Admin Portal</p>
+    </div>
+
+    <div id="login-step-email" class="login-step active">
+      <div id="login-alert"></div>
+      <div class="form-group">
+        <label for="login-email">Admin Email Address</label>
+        <input type="email" id="login-email" placeholder="you@example.com" autocomplete="email" />
+      </div>
+      <button class="btn-primary" onclick="sendCode()">Send Login Code</button>
+      <p class="login-hint">A 6-digit code will be sent to your email.</p>
+    </div>
+
+    <div id="login-step-code" class="login-step">
+      <div id="code-alert"></div>
+      <p style="margin-bottom:14px; font-size:13px; color:var(--muted);">
+        Enter the 6-digit code sent to <strong id="code-email-hint"></strong>
+      </p>
+      <div class="form-group">
+        <label for="login-code">Verification Code</label>
+        <input type="text" id="login-code" placeholder="123456" maxlength="6" inputmode="numeric" autocomplete="one-time-code" />
+      </div>
+      <button class="btn-primary" onclick="verifyCode()">Sign In</button>
+      <p class="login-hint"><a href="#" onclick="resetLogin()">Use a different email</a></p>
+    </div>
+  </div>
+</div>
+
+<!-- ── App Shell ─────────────────────────────────────────────────────────── -->
+<div id="app">
+  <header class="app-header">
+    <h1>🍷 Wine Circle Admin</h1>
+    <span class="user-info" id="header-user"></span>
+    <button class="btn-logout" onclick="logout()">Sign Out</button>
+  </header>
+
+  <div class="app-body">
+    <aside class="sidebar">
+      <nav>
+        <div class="nav-item active" data-page="events" onclick="nav('events')">
+          <span class="nav-icon">📅</span> Events
+        </div>
+        <div class="nav-item" data-page="members" onclick="nav('members')">
+          <span class="nav-icon">👥</span> Members
+        </div>
+        <hr class="nav-divider" />
+        <div class="nav-item" data-page="fees" onclick="nav('fees')">
+          <span class="nav-icon">💰</span> Fee Ledger
+        </div>
+        <hr class="nav-divider" />
+        <div class="nav-item" data-page="audit" onclick="nav('audit')">
+          <span class="nav-icon">📋</span> Audit Log
+        </div>
+        <div class="nav-item" data-page="email-log" onclick="nav('email-log')">
+          <span class="nav-icon">📧</span> Email Log
+        </div>
+        <hr class="nav-divider" />
+        <div class="nav-item" data-page="settings" onclick="nav('settings')">
+          <span class="nav-icon">⚙️</span> Settings
+        </div>
+      </nav>
+    </aside>
+
+    <main class="main-content">
+
+      <!-- ── Events Page ─────────────────────────────────────────────────── -->
+      <div id="page-events" class="page active">
+        <div class="page-header">
+          <h2>Events</h2>
+          <div class="actions">
+            <button class="btn-primary" onclick="openCreateEvent()">+ New Event</button>
+          </div>
+        </div>
+        <div class="toolbar">
+          <select id="events-status-filter" onchange="loadEvents()">
+            <option value="">All Statuses</option>
+            <option value="Draft">Draft</option>
+            <option value="Open">Open</option>
+            <option value="Closed">Closed</option>
+            <option value="Lotteried">Lotteried</option>
+            <option value="Completed">Completed</option>
+            <option value="Cancelled">Cancelled</option>
+          </select>
+        </div>
+        <div class="card table-wrap">
+          <table id="events-table">
+            <thead>
+              <tr>
+                <th>Event</th>
+                <th>Date</th>
+                <th>Location</th>
+                <th>Capacity</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="events-tbody">
+              <tr class="loading-row"><td colspan="6"><span class="spinner"></span> Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── Event Detail Page ───────────────────────────────────────────── -->
+      <div id="page-event-detail" class="page">
+        <span class="back-link" onclick="nav('events')">← Back to Events</span>
+        <div class="page-header">
+          <h2 id="event-detail-name">Event</h2>
+          <div class="actions">
+            <span id="event-detail-badge"></span>
+          </div>
+        </div>
+
+        <div id="event-detail-meta" class="event-meta"></div>
+
+        <!-- Action bar -->
+        <div class="section-title">Actions</div>
+        <div class="action-bar" id="event-action-bar">
+          <button class="btn-secondary btn-sm" id="btn-open-signups"   onclick="eventAction('open')">Open Signups</button>
+          <button class="btn-secondary btn-sm" id="btn-close-signups"  onclick="eventAction('close')">Close Signups</button>
+          <button class="btn-primary   btn-sm" id="btn-run-lottery"    onclick="eventAction('run-lottery')">Run Lottery</button>
+          <button class="btn-success   btn-sm" id="btn-send-invites"   onclick="eventAction('send-invites')">Send Invite Emails</button>
+          <button class="btn-secondary btn-sm" id="btn-send-lost"      onclick="eventAction('send-lost')">Send Lost Emails</button>
+          <button class="btn-success   btn-sm" id="btn-finalize"       onclick="eventAction('finalize')">Finalize Event</button>
+          <button class="btn-danger    btn-sm" id="btn-cancel-event"   onclick="eventAction('cancel')">Cancel Event</button>
+          <button class="btn-secondary btn-sm"                         onclick="openEditEvent()">Edit Details</button>
+        </div>
+
+        <!-- Toggle settings -->
+        <div class="card card-body settings-list" style="margin-bottom:20px;">
+          <div class="toggle-row">
+            <label for="toggle-auto-invite">Auto-promote from waitlist when invite is declined</label>
+            <label class="toggle-switch">
+              <input type="checkbox" id="toggle-auto-invite" onchange="toggleEventSetting('auto_invite_enabled', this.checked)" />
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="toggle-row">
+            <label for="toggle-lost-emails">Send "lottery lost" emails after lottery</label>
+            <label class="toggle-switch">
+              <input type="checkbox" id="toggle-lost-emails" onchange="toggleEventSetting('send_lottery_lost_emails', this.checked)" />
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Tabs: Signups / Attendance -->
+        <div class="tab-bar">
+          <div class="tab-item active" onclick="switchTab('signups')">Signups</div>
+          <div class="tab-item" onclick="switchTab('attendance')">Mark Attendance</div>
+        </div>
+
+        <div id="tab-signups" class="tab-panel active">
+          <div class="stat-grid" id="event-signup-stats"></div>
+          <div class="card table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Member</th>
+                  <th>Email</th>
+                  <th>Status</th>
+                  <th>Signed Up</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="event-signups-tbody">
+                <tr class="loading-row"><td colspan="6"><span class="spinner"></span></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="tab-attendance" class="tab-panel">
+          <p class="text-muted" style="margin-bottom:14px; font-size:13px;">
+            Check off members who attended. Invited and waitlisted members are shown (in case a waitlisted member showed up anyway).
+          </p>
+          <div class="attendance-list" id="attendance-list"></div>
+        </div>
+      </div>
+
+      <!-- ── Members Page ────────────────────────────────────────────────── -->
+      <div id="page-members" class="page">
+        <div class="page-header">
+          <h2>Members</h2>
+          <div class="actions">
+            <button class="btn-primary" onclick="openAddMember()">+ Add Member</button>
+          </div>
+        </div>
+        <div class="toolbar">
+          <input type="search" id="members-search" placeholder="Search name or email…" oninput="filterMembers()" />
+          <select id="members-status-filter" onchange="filterMembers()">
+            <option value="">All Statuses</option>
+            <option value="Active">Active</option>
+            <option value="Inactive">Inactive</option>
+            <option value="Blocked">Blocked</option>
+          </select>
+        </div>
+        <div class="card table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Affiliation</th>
+                <th>Status</th>
+                <th>Roles</th>
+                <th>Balance</th>
+                <th>Joined</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="members-tbody">
+              <tr class="loading-row"><td colspan="8"><span class="spinner"></span> Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── Fees Page ───────────────────────────────────────────────────── -->
+      <div id="page-fees" class="page">
+        <div class="page-header">
+          <h2>Fee Ledger</h2>
+        </div>
+        <div class="tab-bar">
+          <div class="tab-item active" onclick="switchFeesTab('outstanding')">Outstanding Fees</div>
+          <div class="tab-item" onclick="switchFeesTab('ledger')">All Transactions</div>
+        </div>
+        <div id="fees-tab-outstanding" class="tab-panel active">
+          <div class="card table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Member</th>
+                  <th>Email</th>
+                  <th>Balance Owed</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="outstanding-tbody">
+                <tr class="loading-row"><td colspan="4"><span class="spinner"></span> Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div id="fees-tab-ledger" class="tab-panel">
+          <div class="toolbar">
+            <select id="fees-type-filter" onchange="loadLedger()">
+              <option value="">All Types</option>
+              <option value="Charge">Charges</option>
+              <option value="Payment">Payments</option>
+              <option value="Waiver">Waivers</option>
+            </select>
+            <div class="spacer"></div>
+          </div>
+          <div class="card table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Member</th>
+                  <th>Type</th>
+                  <th>Amount</th>
+                  <th>Event</th>
+                  <th>Notes</th>
+                  <th>Recorded By</th>
+                </tr>
+              </thead>
+              <tbody id="ledger-tbody">
+                <tr class="loading-row"><td colspan="7"><span class="spinner"></span> Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="pagination" id="ledger-pagination"></div>
+        </div>
+      </div>
+
+      <!-- ── Audit Log Page ──────────────────────────────────────────────── -->
+      <div id="page-audit" class="page">
+        <div class="page-header"><h2>Audit Log</h2></div>
+        <div class="card table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Admin</th>
+                <th>Action</th>
+                <th>Target</th>
+                <th>ID</th>
+              </tr>
+            </thead>
+            <tbody id="audit-tbody">
+              <tr class="loading-row"><td colspan="5"><span class="spinner"></span> Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="pagination" id="audit-pagination"></div>
+      </div>
+
+      <!-- ── Email Log Page ──────────────────────────────────────────────── -->
+      <div id="page-email-log" class="page">
+        <div class="page-header"><h2>Email Log</h2></div>
+        <div class="card table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>To</th>
+                <th>Subject</th>
+                <th>Type</th>
+                <th>Event</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="email-log-tbody">
+              <tr class="loading-row"><td colspan="6"><span class="spinner"></span> Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="pagination" id="email-log-pagination"></div>
+      </div>
+
+      <!-- ── Settings Page ───────────────────────────────────────────────── -->
+      <div id="page-settings" class="page">
+        <div class="page-header"><h2>Settings</h2></div>
+        <div id="settings-body"></div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- ── Toast container ───────────────────────────────────────────────────── -->
+<div id="toast-container"></div>
+
+<!-- ── Modals ────────────────────────────────────────────────────────────── -->
+
+<!-- Member modal -->
+<div class="modal-overlay" id="modal-member">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modal-member-title">Add Member</h3>
+      <button class="modal-close" onclick="closeModal('modal-member')">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="modal-member-alert"></div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="m-full-name">Full Name *</label>
+          <input type="text" id="m-full-name" />
+        </div>
+        <div class="form-group">
+          <label for="m-email">Email *</label>
+          <input type="email" id="m-email" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="m-affiliation">Affiliation</label>
+          <input type="text" id="m-affiliation" />
+        </div>
+        <div class="form-group">
+          <label for="m-status">Status</label>
+          <select id="m-status">
+            <option value="Active">Active</option>
+            <option value="Inactive">Inactive</option>
+            <option value="Blocked">Blocked</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="m-notes">Notes</label>
+        <textarea id="m-notes" rows="2"></textarea>
+      </div>
+      <div class="form-group">
+        <label>Roles</label>
+        <label class="form-check" style="margin-bottom:8px;">
+          <input type="checkbox" id="m-is-admin" />
+          <span>Admin (can manage events, members, and fees)</span>
+        </label>
+        <label class="form-check">
+          <input type="checkbox" id="m-can-clear-fees" />
+          <span>Can Clear Fees (can record payments and waivers)</span>
+        </label>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('modal-member')">Cancel</button>
+      <button class="btn-primary" id="modal-member-submit" onclick="saveMember()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Payment modal -->
+<div class="modal-overlay" id="modal-payment">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modal-payment-title">Record Payment</h3>
+      <button class="modal-close" onclick="closeModal('modal-payment')">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="modal-payment-alert"></div>
+      <div class="form-group">
+        <label for="pay-member-name">Member</label>
+        <input type="text" id="pay-member-name" readonly style="background:var(--bg);" />
+        <input type="hidden" id="pay-member-id" />
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="pay-type">Type</label>
+          <select id="pay-type">
+            <option value="Payment">Payment</option>
+            <option value="Waiver">Waiver</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="pay-amount">Amount ($)</label>
+          <input type="number" id="pay-amount" min="0.01" step="0.01" placeholder="0.00" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="pay-reference">ePay Reference (optional)</label>
+        <input type="text" id="pay-reference" placeholder="Venmo/PayPal ref..." />
+      </div>
+      <div class="form-group">
+        <label for="pay-notes">Notes</label>
+        <textarea id="pay-notes" rows="2"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('modal-payment')">Cancel</button>
+      <button class="btn-success" onclick="savePayment()">Record Payment</button>
+    </div>
+  </div>
+</div>
+
+<!-- Event create/edit modal -->
+<div class="modal-overlay" id="modal-event">
+  <div class="modal" style="max-width:600px;">
+    <div class="modal-header">
+      <h3 id="modal-event-title">New Event</h3>
+      <button class="modal-close" onclick="closeModal('modal-event')">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="modal-event-alert"></div>
+      <div class="form-group">
+        <label for="ev-name">Event Name *</label>
+        <input type="text" id="ev-name" placeholder="June Wine Tasting" />
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="ev-date">Event Date</label>
+          <input type="datetime-local" id="ev-date" />
+        </div>
+        <div class="form-group">
+          <label for="ev-capacity">Capacity</label>
+          <input type="number" id="ev-capacity" value="60" min="1" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="ev-location">Location</label>
+        <input type="text" id="ev-location" placeholder="123 Main St, City" />
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="ev-signup-opens">Signup Opens</label>
+          <input type="datetime-local" id="ev-signup-opens" />
+        </div>
+        <div class="form-group">
+          <label for="ev-signup-closes">Signup Closes</label>
+          <input type="datetime-local" id="ev-signup-closes" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="ev-description">Description</label>
+        <textarea id="ev-description" rows="3" placeholder="Event details for members..."></textarea>
+      </div>
+      <div class="form-group">
+        <label for="ev-host-notes">Host Notes (admin-only)</label>
+        <textarea id="ev-host-notes" rows="2" placeholder="Internal notes..."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('modal-event')">Cancel</button>
+      <button class="btn-primary" id="modal-event-submit" onclick="saveEvent()">Create Event</button>
+    </div>
+  </div>
+</div>
+
+<!-- Lottery result modal -->
+<div class="modal-overlay" id="modal-lottery">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Lottery Results</h3>
+      <button class="modal-close" onclick="closeModal('modal-lottery')">×</button>
+    </div>
+    <div class="modal-body" id="modal-lottery-body"></div>
+    <div class="modal-footer">
+      <button class="btn-primary" onclick="closeModal('modal-lottery')">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm modal -->
+<div class="modal-overlay" id="modal-confirm">
+  <div class="modal" style="max-width:400px;">
+    <div class="modal-header">
+      <h3 id="modal-confirm-title">Confirm</h3>
+      <button class="modal-close" onclick="closeModal('modal-confirm')">×</button>
+    </div>
+    <div class="modal-body">
+      <p id="modal-confirm-message"></p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('modal-confirm')">Cancel</button>
+      <button class="btn-danger" id="modal-confirm-ok" onclick="">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ── State ──────────────────────────────────────────────────────────────── */
+let sessionToken = localStorage.getItem('admin_token') || null;
+let currentMember = null;
+let currentPage = 'events';
+let currentEventId = null;
+let allMembers = []; // for client-side filter
+let auditPage = 1, emailLogPage = 1, ledgerPage = 1;
+const PAGE_SIZE = 30;
+
+/* ── API helper ─────────────────────────────────────────────────────────── */
+async function api(method, path, body) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (sessionToken) headers['x-session-token'] = sessionToken;
+  const res = await fetch('/api' + path, {
+    method, headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
+/* ── Auth ────────────────────────────────────────────────────────────────── */
+async function init() {
+  if (sessionToken) {
+    try {
+      const meRes = await api('GET', '/auth/me');
+      const me = meRes.member || meRes;
+      if (!me.is_admin) throw new Error('Not an admin account');
+      currentMember = me;
+      showApp();
+    } catch {
+      sessionToken = null;
+      localStorage.removeItem('admin_token');
+      showLogin();
+    }
+  } else {
+    showLogin();
+  }
+}
+
+function showLogin() {
+  document.getElementById('screen-login').style.display = 'flex';
+  document.getElementById('app').classList.remove('ready');
+}
+
+function showApp() {
+  document.getElementById('screen-login').style.display = 'none';
+  document.getElementById('app').classList.add('ready');
+  document.getElementById('header-user').textContent = currentMember.full_name || currentMember.email;
+  nav('events');
+}
+
+async function sendCode() {
+  const email = document.getElementById('login-email').value.trim();
+  if (!email) return showAlert('login-alert', 'Please enter your email.', 'error');
+  clearAlert('login-alert');
+  try {
+    await api('POST', '/auth/send-code', { email });
+    document.getElementById('code-email-hint').textContent = email;
+    document.getElementById('login-step-email').classList.remove('active');
+    document.getElementById('login-step-code').classList.add('active');
+    document.getElementById('login-code').focus();
+  } catch (e) {
+    showAlert('login-alert', e.message, 'error');
+  }
+}
+
+async function verifyCode() {
+  const email = document.getElementById('login-email').value.trim();
+  const code  = document.getElementById('login-code').value.trim();
+  if (!code) return showAlert('code-alert', 'Enter the 6-digit code.', 'error');
+  clearAlert('code-alert');
+  try {
+    const res = await api('POST', '/auth/verify-code', { email, code });
+    sessionToken = res.token;
+    localStorage.setItem('admin_token', sessionToken);
+    const meRes2 = await api('GET', '/auth/me');
+    const me = meRes2.member || meRes2;
+    if (!me.is_admin) {
+      sessionToken = null;
+      localStorage.removeItem('admin_token');
+      return showAlert('code-alert', 'This account does not have admin access.', 'error');
+    }
+    currentMember = me;
+    showApp();
+  } catch (e) {
+    showAlert('code-alert', e.message, 'error');
+  }
+}
+
+async function logout() {
+  try { await api('POST', '/auth/logout'); } catch {}
+  sessionToken = null;
+  localStorage.removeItem('admin_token');
+  currentMember = null;
+  showLogin();
+  resetLogin();
+}
+
+function resetLogin() {
+  document.getElementById('login-step-email').classList.add('active');
+  document.getElementById('login-step-code').classList.remove('active');
+  document.getElementById('login-code').value = '';
+  clearAlert('login-alert');
+  clearAlert('code-alert');
+  return false;
+}
+
+/* ── Navigation ──────────────────────────────────────────────────────────── */
+function nav(page) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  const pageEl = document.getElementById('page-' + page);
+  const navEl  = document.querySelector(`.nav-item[data-page="${page}"]`);
+  if (pageEl) pageEl.classList.add('active');
+  if (navEl)  navEl.classList.add('active');
+  currentPage = page;
+
+  if (page === 'events')     loadEvents();
+  if (page === 'members')    loadMembers();
+  if (page === 'fees')       { loadOutstanding(); switchFeesTab('outstanding'); }
+  if (page === 'audit')      { auditPage = 1; loadAudit(); }
+  if (page === 'email-log')  { emailLogPage = 1; loadEmailLog(); }
+  if (page === 'settings')   loadSettings();
+}
+
+/* ── Tabs ────────────────────────────────────────────────────────────────── */
+function switchTab(tab) {
+  document.querySelectorAll('#page-event-detail .tab-item').forEach((t, i) => {
+    t.classList.toggle('active', ['signups', 'attendance'][i] === tab);
+  });
+  document.getElementById('tab-signups').classList.toggle('active', tab === 'signups');
+  document.getElementById('tab-attendance').classList.toggle('active', tab === 'attendance');
+  if (tab === 'attendance') loadAttendance();
+}
+
+function switchFeesTab(tab) {
+  document.querySelectorAll('#page-fees .tab-item').forEach((t, i) => {
+    t.classList.toggle('active', ['outstanding', 'ledger'][i] === tab);
+  });
+  document.getElementById('fees-tab-outstanding').classList.toggle('active', tab === 'outstanding');
+  document.getElementById('fees-tab-ledger').classList.toggle('active', tab === 'ledger');
+  if (tab === 'ledger') { ledgerPage = 1; loadLedger(); }
+}
+
+/* ── Events ──────────────────────────────────────────────────────────────── */
+async function loadEvents() {
+  const statusFilter = document.getElementById('events-status-filter')?.value || '';
+  const tbody = document.getElementById('events-tbody');
+  tbody.innerHTML = '<tr class="loading-row"><td colspan="6"><span class="spinner"></span> Loading…</td></tr>';
+  try {
+    const res = await api('GET', '/events');
+    const events = res.events || res;
+    let filtered = events;
+    if (statusFilter) filtered = events.filter(e => e.status === statusFilter);
+    if (!filtered.length) {
+      tbody.innerHTML = '<tr class="loading-row"><td colspan="6" style="color:var(--muted)">No events found.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = filtered.map(e => `
+      <tr>
+        <td><a href="#" onclick="openEventDetail('${e.event_id}'); return false;" style="font-weight:600">${esc(e.name)}</a></td>
+        <td>${e.event_date ? fmtDate(e.event_date) : '<span class="text-muted">—</span>'}</td>
+        <td>${esc(e.location) || '<span class="text-muted">—</span>'}</td>
+        <td>${e.capacity}</td>
+        <td><span class="badge badge-${e.status.toLowerCase()}">${e.status}</span></td>
+        <td>
+          <div class="td-actions">
+            <button class="btn-secondary btn-sm" onclick="openEventDetail('${e.event_id}')">Manage</button>
+            <button class="btn-secondary btn-sm" onclick="openEditEventById('${e.event_id}', event)">Edit</button>
+          </div>
+        </td>
+      </tr>
+    `).join('');
+  } catch (e) {
+    tbody.innerHTML = `<tr class="loading-row"><td colspan="6" class="text-danger">Error: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+async function openEventDetail(eventId) {
+  currentEventId = eventId;
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('page-event-detail').classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.querySelector('.nav-item[data-page="events"]').classList.add('active');
+
+  // Reset tabs
+  switchTab('signups');
+
+  try {
+    const evRes = await api('GET', `/events/${eventId}`);
+    const ev = evRes.event || evRes;
+    document.getElementById('event-detail-name').textContent = ev.name;
+    document.getElementById('event-detail-badge').innerHTML = `<span class="badge badge-${ev.status.toLowerCase()}">${ev.status}</span>`;
+
+    document.getElementById('event-detail-meta').innerHTML = `
+      <div class="meta-item"><div class="meta-label">Date</div><div class="meta-value">${ev.event_date ? fmtDate(ev.event_date) : '—'}</div></div>
+      <div class="meta-item"><div class="meta-label">Location</div><div class="meta-value">${esc(ev.location) || '—'}</div></div>
+      <div class="meta-item"><div class="meta-label">Capacity</div><div class="meta-value">${ev.capacity}</div></div>
+      <div class="meta-item"><div class="meta-label">Signup Opens</div><div class="meta-value">${ev.signup_opens_at ? fmtDate(ev.signup_opens_at) : '—'}</div></div>
+      <div class="meta-item"><div class="meta-label">Signup Closes</div><div class="meta-value">${ev.signup_closes_at ? fmtDate(ev.signup_closes_at) : '—'}</div></div>
+      <div class="meta-item"><div class="meta-label">Created By</div><div class="meta-value">${esc(ev.created_by) || '—'}</div></div>
+    `;
+
+    document.getElementById('toggle-auto-invite').checked = !!ev.auto_invite_enabled;
+    document.getElementById('toggle-lost-emails').checked = !!ev.send_lottery_lost_emails;
+
+    await loadEventSignups(eventId);
+  } catch (e) {
+    toast('Failed to load event: ' + e.message, 'error');
+  }
+}
+
+async function loadEventSignups(eventId) {
+  const tbody = document.getElementById('event-signups-tbody');
+  tbody.innerHTML = '<tr class="loading-row"><td colspan="6"><span class="spinner"></span></td></tr>';
+  try {
+    const signupsRes = await api('GET', `/events/${eventId}/signups`);
+    const signups = signupsRes.signups || signupsRes;
+    const counts = { Pending:0, Invited:0, Waitlist:0, Lost:0, Declined:0, Attended:0, Flaked:0, Dropped:0 };
+    signups.forEach(s => { if (counts[s.status] !== undefined) counts[s.status]++; });
+
+    document.getElementById('event-signup-stats').innerHTML = `
+      <div class="stat-card"><div class="stat-value">${signups.length}</div><div class="stat-label">Total Signups</div></div>
+      <div class="stat-card"><div class="stat-value" style="color:var(--info)">${counts.Invited}</div><div class="stat-label">Invited</div></div>
+      <div class="stat-card"><div class="stat-value" style="color:var(--warning)">${counts.Waitlist}</div><div class="stat-label">Waitlist</div></div>
+      <div class="stat-card"><div class="stat-value" style="color:var(--muted)">${counts.Pending}</div><div class="stat-label">Pending</div></div>
+      <div class="stat-card"><div class="stat-value" style="color:var(--success)">${counts.Attended}</div><div class="stat-label">Attended</div></div>
+    `;
+
+    if (!signups.length) {
+      tbody.innerHTML = '<tr class="loading-row"><td colspan="6" style="color:var(--muted)">No signups yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = signups.map((s, i) => `
+      <tr>
+        <td class="text-muted">${s.lottery_rank ?? '—'}</td>
+        <td style="font-weight:600">${esc(s.member_name)}</td>
+        <td>${esc(s.member_email)}</td>
+        <td><span class="badge badge-${s.status.toLowerCase()}">${s.status}</span></td>
+        <td class="text-muted" style="font-size:12px">${fmtDateTime(s.signed_up_at)}</td>
+        <td>
+          <div class="td-actions">
+            ${s.status === 'Waitlist' ? `<button class="btn-secondary btn-sm" onclick="promoteSignup('${s.signup_id}')">Promote</button>` : ''}
+          </div>
+        </td>
+      </tr>
+    `).join('');
+  } catch (e) {
+    tbody.innerHTML = `<tr class="loading-row"><td colspan="6" class="text-danger">Error: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+async function loadAttendance() {
+  const list = document.getElementById('attendance-list');
+  list.innerHTML = '<div class="text-muted" style="padding:20px;text-align:center"><span class="spinner"></span> Loading…</div>';
+  try {
+    const attRes = await api('GET', `/events/${currentEventId}/signups`);
+    const signups = attRes.signups || attRes;
+    const eligible = signups.filter(s => ['Invited', 'Waitlist', 'Attended'].includes(s.status));
+    if (!eligible.length) {
+      list.innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div><p>No invited members yet.</p></div>';
+      return;
+    }
+    list.innerHTML = eligible.map(s => `
+      <label class="attendance-item ${s.status === 'Attended' ? 'attended' : ''}" id="att-${s.signup_id}">
+        <input type="checkbox" ${s.status === 'Attended' ? 'checked' : ''}
+          onchange="markAttendance('${s.signup_id}', this.checked)" />
+        <div>
+          <div class="name">${esc(s.member_name)}</div>
+          <div class="sub">${esc(s.member_email)} · <span class="badge badge-${s.status.toLowerCase()}">${s.status}</span></div>
+        </div>
+      </label>
+    `).join('');
+  } catch (e) {
+    list.innerHTML = `<div class="text-danger" style="padding:20px">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+async function markAttendance(signupId, attended) {
+  try {
+    await api('POST', `/signups/${signupId}/attendance`, { attended });
+    const el = document.getElementById(`att-${signupId}`);
+    if (el) el.classList.toggle('attended', attended);
+    toast(attended ? 'Attendance marked' : 'Attendance unmarked', 'success');
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
+  }
+}
+
+async function promoteSignup(signupId) {
+  try {
+    await api('POST', `/signups/${signupId}/promote`);
+    toast('Member promoted from waitlist', 'success');
+    await loadEventSignups(currentEventId);
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
+  }
+}
+
+async function eventAction(action) {
+  const ev = currentEventId;
+  const confirmMap = {
+    'open':         ['Open Signups', 'Open signups for this event?', 'btn-success'],
+    'close':        ['Close Signups', 'Close signups for this event?', 'btn-warning'],
+    'run-lottery':  ['Run Lottery', 'Run the lottery now? This assigns Invited/Waitlist/Lost statuses to all Pending signups.', 'btn-primary'],
+    'send-invites': ['Send Invitation Emails', 'Send invitation emails to all Invited members? This may send many emails.', 'btn-success'],
+    'send-lost':    ['Send Lost Emails', 'Send "lottery lost" emails to all Lost members?', 'btn-secondary'],
+    'finalize':     ['Finalize Event', 'Finalize this event? This will mark non-attending invited members as Flaked and charge flake fees.', 'btn-danger'],
+    'cancel':       ['Cancel Event', 'Cancel this event?', 'btn-danger'],
+  };
+  const [title, message, btnClass] = confirmMap[action] || ['Confirm', 'Are you sure?', 'btn-danger'];
+  confirm(title, message, btnClass, async () => {
+    try {
+      let result;
+      if (action === 'run-lottery') {
+        result = await api('POST', `/events/${ev}/run-lottery`);
+        const r = result;
+        document.getElementById('modal-lottery-body').innerHTML = `
+          <div class="stat-grid">
+            <div class="stat-card"><div class="stat-value" style="color:var(--info)">${r.invited ?? 0}</div><div class="stat-label">Invited</div></div>
+            <div class="stat-card"><div class="stat-value" style="color:var(--warning)">${r.waitlist ?? 0}</div><div class="stat-label">Waitlist</div></div>
+          </div>
+          <p style="margin-top:16px;color:var(--muted);font-size:13px;">The lottery has been run. Review the signups table and send invitation emails when ready.</p>
+        `;
+        openModal('modal-lottery');
+      } else if (action === 'send-invites') {
+        result = await api('POST', '/email/send-invitations', { event_id: ev });
+        toast(`Sent ${result.sent ?? 0} invitation email(s)`, 'success');
+      } else if (action === 'send-lost') {
+        result = await api('POST', '/email/send-lottery-lost', { event_id: ev });
+        toast(`Sent ${result.sent ?? 0} lottery-lost email(s)`, 'success');
+      } else if (action === 'open') {
+        await api('POST', `/events/${ev}/open`);
+        toast('Signups opened', 'success');
+      } else if (action === 'close') {
+        await api('POST', `/events/${ev}/close`);
+        toast('Signups closed', 'success');
+      } else if (action === 'finalize') {
+        result = await api('POST', `/events/${ev}/finalize`);
+        toast(`Event finalized. ${result.flaked ?? 0} flake(s) recorded.`, 'success');
+      } else if (action === 'cancel') {
+        await api('POST', `/events/${ev}/cancel`);
+        toast('Event cancelled', 'success');
+        nav('events');
+        return;
+      }
+      await openEventDetail(ev);
+    } catch (e) {
+      toast('Error: ' + e.message, 'error');
+    }
+  });
+}
+
+async function toggleEventSetting(field, value) {
+  try {
+    await api('PATCH', `/events/${currentEventId}`, { [field]: value });
+    toast('Setting updated', 'success');
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
+  }
+}
+
+/* ── Event create/edit ─────────────────────────────────────────────────── */
+let editingEventId = null;
+
+function openCreateEvent() {
+  editingEventId = null;
+  document.getElementById('modal-event-title').textContent = 'New Event';
+  document.getElementById('modal-event-submit').textContent = 'Create Event';
+  clearAlert('modal-event-alert');
+  ['ev-name','ev-location','ev-description','ev-host-notes'].forEach(id => document.getElementById(id).value = '');
+  ['ev-date','ev-signup-opens','ev-signup-closes'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('ev-capacity').value = '60';
+  openModal('modal-event');
+}
+
+async function openEditEventById(eventId, e) {
+  if (e) { e.stopPropagation(); e.preventDefault(); }
+  editingEventId = eventId;
+  try {
+    const ev = await api('GET', `/events/${eventId}`);
+    document.getElementById('modal-event-title').textContent = 'Edit Event';
+    document.getElementById('modal-event-submit').textContent = 'Save Changes';
+    clearAlert('modal-event-alert');
+    document.getElementById('ev-name').value = ev.name || '';
+    document.getElementById('ev-location').value = ev.location || '';
+    document.getElementById('ev-capacity').value = ev.capacity || 60;
+    document.getElementById('ev-description').value = ev.description || '';
+    document.getElementById('ev-host-notes').value = ev.host_notes || '';
+    document.getElementById('ev-date').value = ev.event_date ? toLocalDateTime(ev.event_date) : '';
+    document.getElementById('ev-signup-opens').value = ev.signup_opens_at ? toLocalDateTime(ev.signup_opens_at) : '';
+    document.getElementById('ev-signup-closes').value = ev.signup_closes_at ? toLocalDateTime(ev.signup_closes_at) : '';
+    openModal('modal-event');
+  } catch (err) {
+    toast('Failed to load event: ' + err.message, 'error');
+  }
+}
+
+function openEditEvent() {
+  openEditEventById(currentEventId, null);
+}
+
+async function saveEvent() {
+  const name = document.getElementById('ev-name').value.trim();
+  if (!name) return showAlert('modal-event-alert', 'Event name is required.', 'error');
+  const payload = {
+    name,
+    location:        document.getElementById('ev-location').value.trim(),
+    capacity:        parseInt(document.getElementById('ev-capacity').value) || 60,
+    description:     document.getElementById('ev-description').value.trim(),
+    host_notes:      document.getElementById('ev-host-notes').value.trim(),
+    event_date:      document.getElementById('ev-date').value || null,
+    signup_opens_at: document.getElementById('ev-signup-opens').value || null,
+    signup_closes_at:document.getElementById('ev-signup-closes').value || null,
+  };
+  const btn = document.getElementById('modal-event-submit');
+  btn.disabled = true;
+  try {
+    if (editingEventId) {
+      await api('PATCH', `/events/${editingEventId}`, payload);
+      toast('Event updated', 'success');
+    } else {
+      await api('POST', '/events', payload);
+      toast('Event created', 'success');
+    }
+    closeModal('modal-event');
+    if (currentPage === 'event-detail') await openEventDetail(editingEventId || currentEventId);
+    else loadEvents();
+  } catch (e) {
+    showAlert('modal-event-alert', e.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* ── Members ─────────────────────────────────────────────────────────────── */
+async function loadMembers() {
+  const tbody = document.getElementById('members-tbody');
+  tbody.innerHTML = '<tr class="loading-row"><td colspan="8"><span class="spinner"></span> Loading…</td></tr>';
+  try {
+    const membersRes = await api('GET', '/members');
+    allMembers = membersRes.members || membersRes;
+    renderMembers();
+  } catch (e) {
+    tbody.innerHTML = `<tr class="loading-row"><td colspan="8" class="text-danger">Error: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+function filterMembers() {
+  renderMembers();
+}
+
+function renderMembers() {
+  const search = (document.getElementById('members-search')?.value || '').toLowerCase();
+  const status = document.getElementById('members-status-filter')?.value || '';
+  const tbody  = document.getElementById('members-tbody');
+  let list = allMembers;
+  if (search) list = list.filter(m => (m.full_name + m.email).toLowerCase().includes(search));
+  if (status) list = list.filter(m => m.status === status);
+  if (!list.length) {
+    tbody.innerHTML = '<tr class="loading-row"><td colspan="8" style="color:var(--muted)">No members found.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = list.map(m => `
+    <tr>
+      <td style="font-weight:600">${esc(m.full_name)}</td>
+      <td class="monospace">${esc(m.email)}</td>
+      <td>${esc(m.affiliation) || '<span class="text-muted">—</span>'}</td>
+      <td><span class="badge badge-${m.status.toLowerCase()}">${m.status}</span></td>
+      <td>
+        ${m.is_admin ? '<span class="badge badge-admin">Admin</span> ' : ''}
+        ${m.can_clear_fees ? '<span class="badge badge-waiver">Fees</span>' : ''}
+      </td>
+      <td class="${m.fee_balance > 0 ? 'fee-balance-positive' : ''}">
+        ${m.fee_balance > 0 ? '$' + parseFloat(m.fee_balance).toFixed(2) : '<span class="text-muted">$0.00</span>'}
+      </td>
+      <td class="text-muted" style="font-size:12px">${fmtDate(m.date_joined)}</td>
+      <td>
+        <div class="td-actions">
+          <button class="btn-secondary btn-sm" onclick="openEditMember('${m.member_id}')">Edit</button>
+          ${m.fee_balance > 0 && currentMember?.can_clear_fees ? `<button class="btn-success btn-sm" onclick="openPayment('${m.member_id}', '${esc(m.full_name)}', ${m.fee_balance})">Pay</button>` : ''}
+          ${m.status !== 'Inactive' ? `<button class="btn-danger btn-sm" onclick="deactivateMember('${m.member_id}', '${esc(m.full_name)}')">Deactivate</button>` : ''}
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+let editingMemberId = null;
+
+function openAddMember() {
+  editingMemberId = null;
+  document.getElementById('modal-member-title').textContent = 'Add Member';
+  document.getElementById('modal-member-submit').textContent = 'Add Member';
+  clearAlert('modal-member-alert');
+  ['m-full-name','m-email','m-affiliation','m-notes'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('m-status').value = 'Active';
+  document.getElementById('m-is-admin').checked = false;
+  document.getElementById('m-can-clear-fees').checked = false;
+  openModal('modal-member');
+}
+
+function openEditMember(memberId) {
+  editingMemberId = memberId;
+  const m = allMembers.find(m => m.member_id === memberId);
+  if (!m) return;
+  document.getElementById('modal-member-title').textContent = 'Edit Member';
+  document.getElementById('modal-member-submit').textContent = 'Save Changes';
+  clearAlert('modal-member-alert');
+  document.getElementById('m-full-name').value = m.full_name || '';
+  document.getElementById('m-email').value = m.email || '';
+  document.getElementById('m-affiliation').value = m.affiliation || '';
+  document.getElementById('m-status').value = m.status || 'Active';
+  document.getElementById('m-notes').value = m.notes || '';
+  document.getElementById('m-is-admin').checked = !!m.is_admin;
+  document.getElementById('m-can-clear-fees').checked = !!m.can_clear_fees;
+  openModal('modal-member');
+}
+
+async function saveMember() {
+  const name  = document.getElementById('m-full-name').value.trim();
+  const email = document.getElementById('m-email').value.trim();
+  if (!name || !email) return showAlert('modal-member-alert', 'Name and email are required.', 'error');
+  const payload = {
+    full_name:     name,
+    email,
+    affiliation:   document.getElementById('m-affiliation').value.trim(),
+    status:        document.getElementById('m-status').value,
+    notes:         document.getElementById('m-notes').value.trim(),
+    is_admin:      document.getElementById('m-is-admin').checked,
+    can_clear_fees:document.getElementById('m-can-clear-fees').checked,
+  };
+  const btn = document.getElementById('modal-member-submit');
+  btn.disabled = true;
+  try {
+    if (editingMemberId) {
+      await api('PATCH', `/members/${editingMemberId}`, payload);
+      toast('Member updated', 'success');
+    } else {
+      await api('POST', '/members', payload);
+      toast('Member added', 'success');
+    }
+    closeModal('modal-member');
+    await loadMembers();
+  } catch (e) {
+    showAlert('modal-member-alert', e.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function deactivateMember(memberId, name) {
+  let impactNote = '';
+  try {
+    const impact = await api('GET', `/members/${memberId}/deactivation-impact`);
+    if (impact.count > 0) {
+      impactNote = ` This will also cancel ${impact.count} open signup${impact.count === 1 ? '' : 's'} (offering any invited spot to the next person on the waitlist).`;
+    }
+  } catch (e) {
+    // Non-fatal — proceed without the impact preview if it fails to load.
+  }
+
+  confirm('Deactivate Member', `Deactivate ${name}? They will no longer be able to sign in.${impactNote}`, 'btn-danger', async () => {
+    try {
+      const res = await api('POST', `/members/${memberId}/deactivate`);
+      const extra = res.cancelledSignups
+        ? ` (${res.cancelledSignups} signup${res.cancelledSignups === 1 ? '' : 's'} cancelled${res.waitlistPromotions ? `, ${res.waitlistPromotions} promoted from waitlist` : ''})`
+        : '';
+      toast(`${name} deactivated${extra}`, 'success');
+      await loadMembers();
+    } catch (e) {
+      toast('Error: ' + e.message, 'error');
+    }
+  });
+}
+
+/* ── Fees ────────────────────────────────────────────────────────────────── */
+async function loadOutstanding() {
+  const tbody = document.getElementById('outstanding-tbody');
+  tbody.innerHTML = '<tr class="loading-row"><td colspan="4"><span class="spinner"></span> Loading…</td></tr>';
+  try {
+    const outRes = await api('GET', '/fees/outstanding');
+    const members = outRes.members || outRes;
+    if (!members.length) {
+      tbody.innerHTML = '<tr class="loading-row"><td colspan="4" style="color:var(--muted)">No outstanding fees. 🎉</td></tr>';
+      return;
+    }
+    tbody.innerHTML = members.map(m => `
+      <tr>
+        <td style="font-weight:600">${esc(m.full_name)}</td>
+        <td>${esc(m.email)}</td>
+        <td class="fee-balance-positive">$${parseFloat(m.fee_balance).toFixed(2)}</td>
+        <td>
+          <div class="td-actions">
+            ${currentMember?.can_clear_fees ? `<button class="btn-success btn-sm" onclick="openPayment('${m.member_id}', '${esc(m.full_name)}', ${m.fee_balance})">Record Payment</button>` : ''}
+          </div>
+        </td>
+      </tr>
+    `).join('');
+  } catch (e) {
+    tbody.innerHTML = `<tr class="loading-row"><td colspan="4" class="text-danger">Error: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+async function loadLedger() {
+  const typeFilter = document.getElementById('fees-type-filter')?.value || '';
+  const tbody = document.getElementById('ledger-tbody');
+  tbody.innerHTML = '<tr class="loading-row"><td colspan="7"><span class="spinner"></span> Loading…</td></tr>';
+  try {
+    const res = await api('GET', '/fees');
+    const allEntries = res.ledger || (Array.isArray(res) ? res : []);
+    const filtered = typeFilter ? allEntries.filter(e => e.type === typeFilter) : allEntries;
+    const start = (ledgerPage - 1) * PAGE_SIZE;
+    const entries = filtered.slice(start, start + PAGE_SIZE);
+    if (!filtered.length) {
+      tbody.innerHTML = '<tr class="loading-row"><td colspan="7" style="color:var(--muted)">No transactions.</td></tr>';
+      renderPagination('ledger-pagination', ledgerPage, filtered.length);
+      return;
+    }
+    tbody.innerHTML = entries.map(e => `
+      <tr>
+        <td class="text-muted" style="font-size:12px">${fmtDateTime(e.occurred_at || e.created_at)}</td>
+        <td style="font-weight:600">${esc(e.full_name || e.member_id)}</td>
+        <td><span class="badge badge-${(e.type||'').toLowerCase()}">${e.type}</span></td>
+        <td class="${e.type==='Charge' ? 'text-danger' : 'text-success'}">${parseFloat(e.amount||0).toFixed(2)}</td>
+        <td class="text-muted">${esc(e.event_name) || '—'}</td>
+        <td class="text-muted" style="font-size:12px">${esc(e.notes) || '—'}</td>
+        <td class="text-muted" style="font-size:12px">${esc(e.recorded_by)}</td>
+      </tr>
+    `).join('');
+    renderPagination('ledger-pagination', ledgerPage, filtered.length);
+  } catch (e) {
+    tbody.innerHTML = `<tr class="loading-row"><td colspan="7" class="text-danger">Error: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+function openPayment(memberId, memberName, balance) {
+  document.getElementById('pay-member-id').value = memberId;
+  document.getElementById('pay-member-name').value = `${memberName} (owes $${parseFloat(balance).toFixed(2)})`;
+  document.getElementById('pay-amount').value = parseFloat(balance).toFixed(2);
+  document.getElementById('pay-reference').value = '';
+  document.getElementById('pay-notes').value = '';
+  document.getElementById('pay-type').value = 'Payment';
+  clearAlert('modal-payment-alert');
+  openModal('modal-payment');
+}
+
+async function savePayment() {
+  const memberId = document.getElementById('pay-member-id').value;
+  const type     = document.getElementById('pay-type').value;
+  const amount   = parseFloat(document.getElementById('pay-amount').value);
+  if (!amount || amount <= 0) return showAlert('modal-payment-alert', 'Enter a valid amount.', 'error');
+  const payload = {
+    member_id:      memberId,
+    amount,
+    type,
+    epay_reference: document.getElementById('pay-reference').value.trim(),
+    notes:          document.getElementById('pay-notes').value.trim(),
+  };
+  try {
+    if (type === 'Waiver') {
+      await api('POST', '/fees/waiver', payload);
+    } else {
+      await api('POST', '/fees/payment', payload);
+    }
+    toast(`${type} recorded`, 'success');
+    closeModal('modal-payment');
+    loadOutstanding();
+    if (currentPage === 'members') loadMembers();
+  } catch (e) {
+    showAlert('modal-payment-alert', e.message, 'error');
+  }
+}
+
+/* ── Audit Log ───────────────────────────────────────────────────────────── */
+async function loadAudit() {
+  const tbody = document.getElementById('audit-tbody');
+  tbody.innerHTML = '<tr class="loading-row"><td colspan="5"><span class="spinner"></span> Loading…</td></tr>';
+  try {
+    const offset = (auditPage - 1) * PAGE_SIZE;
+    const res = await api('GET', `/audit?limit=${PAGE_SIZE}&offset=${offset}`);
+    const entries = res.log || (Array.isArray(res) ? res : []);
+    if (!entries.length) {
+      tbody.innerHTML = '<tr class="loading-row"><td colspan="5" style="color:var(--muted)">No audit entries.</td></tr>';
+      renderPagination('audit-pagination', auditPage, 0);
+      return;
+    }
+    tbody.innerHTML = entries.map(e => `
+      <tr>
+        <td class="monospace" style="font-size:11px;white-space:nowrap">${fmtDateTime(e.created_at)}</td>
+        <td>${esc(e.admin_email)}</td>
+        <td>${esc(e.action)}</td>
+        <td class="text-muted">${esc(e.target_table)}</td>
+        <td class="monospace" style="font-size:11px">${esc(e.target_id)}</td>
+      </tr>
+    `).join('');
+    // Audit uses server-side paging; show next if full page returned
+    renderPagination('audit-pagination', auditPage, entries.length < PAGE_SIZE ? ((auditPage - 1) * PAGE_SIZE + entries.length) : (auditPage * PAGE_SIZE + 1));
+  } catch (e) {
+    tbody.innerHTML = `<tr class="loading-row"><td colspan="5" class="text-danger">Error: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+/* ── Email Log ───────────────────────────────────────────────────────────── */
+async function loadEmailLog() {
+  const tbody = document.getElementById('email-log-tbody');
+  tbody.innerHTML = '<tr class="loading-row"><td colspan="6"><span class="spinner"></span> Loading…</td></tr>';
+  try {
+    const res = await api('GET', `/email/log?limit=200`);
+    const all = res.log || (Array.isArray(res) ? res : []);
+    const start = (emailLogPage - 1) * PAGE_SIZE;
+    const entries = all.slice(start, start + PAGE_SIZE);
+    if (!entries.length) {
+      tbody.innerHTML = '<tr class="loading-row"><td colspan="6" style="color:var(--muted)">No emails sent yet.</td></tr>';
+      renderPagination('email-log-pagination', emailLogPage, 0);
+      return;
+    }
+    tbody.innerHTML = entries.map(e => `
+      <tr>
+        <td class="monospace" style="font-size:11px;white-space:nowrap">${fmtDateTime(e.sent_at)}</td>
+        <td class="monospace" style="font-size:12px">${esc(e.to_email)}</td>
+        <td>${esc(e.subject)}</td>
+        <td><span class="badge badge-${(e.type||'').toLowerCase().replace(/\s+/g,'')}">${e.type}</span></td>
+        <td class="text-muted" style="font-size:12px">${esc(e.event_name) || '—'}</td>
+        <td><span class="badge badge-${e.status}">${e.status}${e.error ? ' ⚠' : ''}</span></td>
+      </tr>
+    `).join('');
+    renderPagination('email-log-pagination', emailLogPage, all.length);
+  } catch (e) {
+    tbody.innerHTML = `<tr class="loading-row"><td colspan="6" class="text-danger">Error: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+/* ── Settings ────────────────────────────────────────────────────────────── */
+async function loadSettings() {
+  const body = document.getElementById('settings-body');
+  body.innerHTML = '<div class="text-muted"><span class="spinner"></span> Loading…</div>';
+  try {
+    const res = await api('GET', '/settings');
+    const list = res.settings || (Array.isArray(res) ? res : []);
+    body.innerHTML = `
+      <div class="card card-body">
+        <table style="width:100%">
+          <thead>
+            <tr>
+              <th style="width:200px">Setting</th>
+              <th>Value</th>
+              <th style="width:120px"></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${list.map(s => `
+              <tr>
+                <td class="monospace" style="font-size:12px">${esc(s.key)}</td>
+                <td><input type="text" id="setting-${esc(s.key)}" value="${esc(s.value)}" /></td>
+                <td><button class="btn-primary btn-sm" onclick="saveSetting('${esc(s.key)}')">Save</button></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  } catch (e) {
+    body.innerHTML = `<div class="text-danger">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+async function saveSetting(key) {
+  const value = document.getElementById('setting-' + key)?.value ?? '';
+  try {
+    await api('PATCH', `/settings/${encodeURIComponent(key)}`, { value });
+    toast('Setting saved', 'success');
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
+  }
+}
+
+/* ── Pagination ──────────────────────────────────────────────────────────── */
+function renderPagination(containerId, page, total) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  const totalPages = Math.ceil(total / PAGE_SIZE) || 1;
+  if (totalPages <= 1) { el.innerHTML = ''; return; }
+  el.innerHTML = `
+    <button class="btn-secondary btn-sm" ${page <= 1 ? 'disabled' : ''} onclick="changePage('${containerId}',${page - 1})">← Prev</button>
+    <span class="page-info">Page ${page} of ${totalPages}</span>
+    <button class="btn-secondary btn-sm" ${page >= totalPages ? 'disabled' : ''} onclick="changePage('${containerId}',${page + 1})">Next →</button>
+  `;
+}
+function changePage(containerId, page) {
+  if (containerId === 'audit-pagination')     { auditPage = page;     loadAudit(); }
+  if (containerId === 'email-log-pagination') { emailLogPage = page;  loadEmailLog(); }
+  if (containerId === 'ledger-pagination')    { ledgerPage = page;    loadLedger(); }
+}
+
+/* ── Modal helpers ───────────────────────────────────────────────────────── */
+function openModal(id)  { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+document.addEventListener('click', e => {
+  if (e.target.classList.contains('modal-overlay')) closeModal(e.target.id);
+});
+
+function confirm(title, message, btnClass, onOk) {
+  document.getElementById('modal-confirm-title').textContent = title;
+  document.getElementById('modal-confirm-message').textContent = message;
+  const btn = document.getElementById('modal-confirm-ok');
+  btn.className = `${btnClass}`;
+  btn.onclick = () => { closeModal('modal-confirm'); onOk(); };
+  openModal('modal-confirm');
+}
+
+/* ── Toast ───────────────────────────────────────────────────────────────── */
+function toast(message, type = '') {
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = message;
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(() => el.remove(), 3500);
+}
+
+/* ── Alert helpers ───────────────────────────────────────────────────────── */
+function showAlert(id, message, type = 'error') {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.innerHTML = `<div class="alert alert-${type}">${esc(message)}</div>`;
+}
+function clearAlert(id) {
+  const el = document.getElementById(id);
+  if (el) el.innerHTML = '';
+}
+
+/* ── Formatting ──────────────────────────────────────────────────────────── */
+function esc(str) {
+  if (str == null) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function fmtDate(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+function fmtDateTime(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+function toLocalDateTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const pad = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/* ── Enter key for login ─────────────────────────────────────────────────── */
+document.getElementById('login-email').addEventListener('keydown', e => { if (e.key === 'Enter') sendCode(); });
+document.getElementById('login-code').addEventListener('keydown', e => { if (e.key === 'Enter') verifyCode(); });
+
+/* ── Boot ────────────────────────────────────────────────────────────────── */
+init();
+</script>
+</body>
+</html>

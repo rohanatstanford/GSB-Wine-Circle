@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wine Circle</title>
+  <style>
+    :root {
+      --burgundy: #6b1f2c;
+      --burgundy-dark: #4a1520;
+      --cream: #fef7f4;
+      --ink: #2a2a2a;
+      --muted: #6b6b6b;
+      --line: #e6dcd6;
+      --warn-bg: #fff4e0;
+      --warn-border: #d99a3e;
+      --ok-bg: #e9f5ec;
+      --ok-border: #4a8a5a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      margin: 0;
+      color: var(--ink);
+      background: var(--cream);
+      line-height: 1.5;
+    }
+    header.wc-header {
+      background: var(--burgundy);
+      color: white;
+      padding: 14px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    header.wc-header h1 { margin: 0; font-size: 18px; font-weight: 500; letter-spacing: 0.3px; }
+    header.wc-header .who { font-size: 13px; opacity: 0.9; }
+    header.wc-header button {
+      color: white; background: transparent; border: 1px solid rgba(255,255,255,0.4);
+      padding: 4px 10px; font-size: 12px; border-radius: 4px; cursor: pointer;
+      margin-left: 8px;
+    }
+    header.wc-header button:hover { background: rgba(255,255,255,0.1); }
+    main { max-width: 720px; margin: 0 auto; padding: 24px 20px 60px; }
+    h2 { font-size: 20px; margin: 32px 0 12px; font-weight: 600; }
+    h2:first-child { margin-top: 0; }
+    .section-empty { color: var(--muted); font-style: italic; padding: 16px 0; }
+    .card {
+      background: white;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 16px;
+      margin-bottom: 12px;
+    }
+    .card h3 { margin: 0 0 4px; font-size: 16px; font-weight: 600; }
+    .card .meta { color: var(--muted); font-size: 13px; margin-bottom: 8px; }
+    .card .desc { font-size: 14px; margin-bottom: 12px; color: var(--ink); }
+    .btn {
+      background: var(--burgundy);
+      color: white; border: none;
+      padding: 8px 16px; border-radius: 4px;
+      cursor: pointer; font-size: 14px; font-weight: 500;
+    }
+    .btn:hover:not(:disabled) { background: var(--burgundy-dark); }
+    .btn:disabled { background: #b8a8aa; cursor: not-allowed; }
+    .btn.secondary {
+      background: white; color: var(--burgundy); border: 1px solid var(--burgundy);
+    }
+    .btn.secondary:hover:not(:disabled) { background: #f0e0e2; }
+    .btn.danger { background: #b3261e; }
+    .btn.danger:hover:not(:disabled) { background: #8c1a14; }
+    .pill {
+      display: inline-block; padding: 2px 10px; border-radius: 12px;
+      font-size: 12px; font-weight: 500; margin-left: 8px; vertical-align: middle;
+    }
+    .pill.invited   { background: #e9f5ec; color: #2a6638; }
+    .pill.waitlist  { background: #fff4e0; color: #8a5a1a; }
+    .pill.signed-up { background: #e8eef8; color: #2a4a8a; }
+    .pill.attended  { background: #e9f5ec; color: #2a6638; }
+    .pill.declined  { background: #f0f0f0; color: #555; }
+    .pill.flaked    { background: #fdecea; color: #8c1a14; }
+    .pill.lost      { background: #f0f0f0; color: #555; }
+    .banner {
+      background: var(--warn-bg);
+      border-left: 4px solid var(--warn-border);
+      padding: 12px 16px; margin: 0 0 20px; border-radius: 4px;
+    }
+    .banner a { color: inherit; }
+    .charge-list { margin: 8px 0 4px; font-size: 14px; }
+    .charge-list-label { color: var(--muted); font-size: 13px; margin-bottom: 2px; }
+    .charge-list ul { margin: 0; padding-left: 20px; }
+    .charge-list li { margin: 2px 0; }
+    .banner-actions { margin-top: 8px; font-size: 14px; }
+    .banner-contact { margin-top: 6px; font-size: 13px; color: var(--muted); }
+    .banner-contact a { color: var(--burgundy); text-decoration: none; }
+    .banner-contact a:hover { text-decoration: underline; }
+    .login-box {
+      max-width: 380px; margin: 60px auto;
+      background: white; border: 1px solid var(--line);
+      border-radius: 8px; padding: 28px;
+    }
+    .login-box h1 { font-size: 22px; margin: 0 0 6px; color: var(--burgundy); }
+    .login-box p { color: var(--muted); font-size: 14px; margin: 0 0 20px; }
+    input[type=email], input[type=text] {
+      width: 100%; padding: 10px 12px;
+      border: 1px solid var(--line); border-radius: 4px;
+      font-size: 15px; margin-bottom: 12px;
+    }
+    input[type=email]:focus, input[type=text]:focus {
+      outline: none; border-color: var(--burgundy);
+    }
+    .login-box .btn { width: 100%; padding: 12px; font-size: 15px; }
+    .err { color: #b3261e; font-size: 13px; margin: 6px 0; min-height: 18px; }
+    .spinner {
+      display: inline-block; width: 14px; height: 14px;
+      border: 2px solid rgba(255,255,255,0.4); border-top-color: white;
+      border-radius: 50%; animation: spin 0.7s linear infinite;
+      vertical-align: middle; margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .small { font-size: 13px; color: var(--muted); }
+    .view { display: none; }
+    .view.active { display: block; }
+    #view-home.active { display: flex; flex-direction: column; min-height: 100vh; }
+    #view-home.active > main { flex: 1; }
+    /* Admin link in header */
+    .admin-link {
+      color: white; background: transparent; border: 1px solid rgba(255,255,255,0.4);
+      padding: 4px 10px; font-size: 12px; border-radius: 4px; cursor: pointer;
+      text-decoration: none; margin-left: 8px;
+    }
+    .admin-link:hover { background: rgba(255,255,255,0.1); }
+    /* Decline confirmation overlay */
+    .overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+      display: flex; align-items: center; justify-content: center; z-index: 100;
+    }
+    .overlay-box {
+      background: white; border-radius: 8px; padding: 24px; max-width: 400px; width: 90%;
+    }
+    .overlay-box h3 { margin: 0 0 10px; font-size: 18px; }
+    .overlay-box p { margin: 0 0 18px; font-size: 14px; color: var(--ink); }
+    .overlay-box .warn-text {
+      color: #8a5a1a; background: var(--warn-bg); border-left: 3px solid var(--warn-border);
+      padding: 8px 10px; border-radius: 3px; margin-bottom: 16px; font-size: 13px;
+    }
+    .overlay-actions { display: flex; gap: 8px; justify-content: flex-end; }
+    /* Loading skeleton */
+    .loading-pulse {
+      height: 80px; background: linear-gradient(90deg, #f0e8e8 25%, #ebe0e0 50%, #f0e8e8 75%);
+      background-size: 200%; animation: pulse 1.4s ease-in-out infinite;
+      border-radius: 6px; margin-bottom: 12px;
+    }
+    @keyframes pulse { 0%{background-position:200%} 100%{background-position:-200%} }
+  </style>
+</head>
+<body>
+
+<!-- LOGIN VIEW -->
+<div id="view-login" class="view">
+  <div class="login-box">
+    <h1 id="login-org-name">Wine Circle</h1>
+    <p>Enter your roster email and we'll send you a 6-digit login code.</p>
+    <div id="step-email">
+      <input type="email" id="email" placeholder="you@stanford.edu" autocomplete="email">
+      <div class="err" id="login-err"></div>
+      <button class="btn" id="send-btn" onclick="sendCode()">Send code</button>
+    </div>
+    <div id="step-code" style="display:none">
+      <p class="small">We sent a 6-digit code to <strong id="email-shown"></strong>. Check your email.</p>
+      <input type="text" id="code" placeholder="6-digit code" inputmode="numeric"
+             autocomplete="one-time-code" maxlength="6">
+      <div class="err" id="verify-err"></div>
+      <button class="btn" id="verify-btn" onclick="verifyCode()">Log in</button>
+      <p class="small" style="margin-top:12px">
+        <a href="#" onclick="backToEmail();return false;">Use a different email</a>
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- HOME VIEW -->
+<div id="view-home" class="view">
+  <header class="wc-header">
+    <h1 id="home-org-name">Wine Circle</h1>
+    <div style="display:flex;align-items:center;gap:4px">
+      <span class="who" id="who"></span>
+      <a href="/admin" id="admin-link" class="admin-link" style="display:none">Admin</a>
+      <button onclick="logout()">Log out</button>
+    </div>
+  </header>
+  <main>
+    <!-- Fee banner -->
+    <div id="blocked-banner" class="banner" style="display:none">
+      <strong>You have an outstanding flake fee of $<span id="balance"></span>.</strong>
+      <div id="charge-list" class="charge-list"></div>
+      <div class="banner-actions">
+        Pay via <a id="epay-link" href="#" target="_blank" rel="noopener">ASSU ePay</a>.
+        Once a leader confirms your payment, you'll be unblocked.
+      </div>
+      <div class="banner-contact" id="leadership-contact" style="display:none">
+        Questions or appeals:
+        <a id="leadership-email-link" href="#"><span id="leadership-email-text"></span></a>
+      </div>
+    </div>
+
+    <h2>Open events</h2>
+    <div id="events-list"><div class="loading-pulse"></div><div class="loading-pulse"></div></div>
+
+    <h2>Your invitations</h2>
+    <div id="invitations-list"><div class="loading-pulse"></div></div>
+
+    <h2>My history</h2>
+    <div id="history-list"><div class="loading-pulse"></div></div>
+  </main>
+</div>
+
+<!-- Decline confirmation overlay -->
+<div id="decline-overlay" class="overlay" style="display:none">
+  <div class="overlay-box">
+    <h3>Decline this invitation?</h3>
+    <p id="decline-event-name"></p>
+    <div id="decline-late-warning" class="warn-text" style="display:none"></div>
+    <div class="overlay-actions">
+      <button class="btn secondary" onclick="closeDeclineOverlay()">Cancel</button>
+      <button class="btn danger" id="decline-confirm-btn" onclick="confirmDecline()">Yes, decline</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  var API = '/api';
+  var TOKEN_KEY = 'wc_session_v1';
+  var token = null;
+  var member = null;
+  var settings = {};
+  var pendingDeclineSignupId = null;
+
+  // ── Init ──────────────────────────────────────────────────────────────────
+
+  document.addEventListener('DOMContentLoaded', async function () {
+    // Load public settings (org name, ePay URL, etc.)
+    try {
+      var r = await fetch(API + '/settings/public');
+      settings = await r.json();
+      var orgName = settings.org_name || 'Wine Circle';
+      document.title = orgName;
+      document.getElementById('login-org-name').textContent = orgName;
+      document.getElementById('home-org-name').textContent = orgName;
+    } catch (e) { /* non-fatal */ }
+
+    // Restore session
+    try { token = localStorage.getItem(TOKEN_KEY); } catch (e) { token = null; }
+    if (token) {
+      try {
+        var res = await apiFetch('GET', '/auth/me');
+        if (res.ok) { member = res.member; showHome(); return; }
+      } catch (e) { /* fall through */ }
+      try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
+    }
+    showLogin();
+  });
+
+  // ── View switching ────────────────────────────────────────────────────────
+
+  function showLogin() {
+    setView('view-login');
+    setTimeout(function () { var el = document.getElementById('email'); if (el) el.focus(); }, 50);
+  }
+
+  function showHome() {
+    setView('view-home');
+    document.getElementById('who').textContent = member.full_name || member.email;
+    document.getElementById('admin-link').style.display = member.is_admin ? '' : 'none';
+    refreshHome();
+  }
+
+  function setView(id) {
+    document.querySelectorAll('.view').forEach(function (el) { el.classList.remove('active'); });
+    document.getElementById(id).classList.add('active');
+  }
+
+  // ── Home data ─────────────────────────────────────────────────────────────
+
+  function refreshHome() {
+    loadEvents();
+    loadInvitations();
+    loadFees();
+    loadHistory();
+  }
+
+  async function loadEvents() {
+    var container = document.getElementById('events-list');
+    try {
+      var res = await apiFetch('GET', '/events');
+      var events = (res.events || []).filter(function (e) {
+        return e.status === 'Open' && !e.signup_status;
+      });
+      renderEvents(events);
+    } catch (err) {
+      container.innerHTML = '<div class="section-empty">Couldn\'t load events. ' + esc(String(err.message || err)) + '</div>';
+    }
+  }
+
+  async function loadInvitations() {
+    var container = document.getElementById('invitations-list');
+    try {
+      var res = await apiFetch('GET', '/signups/invitations');
+      renderInvitations(res.invitations || []);
+    } catch (err) {
+      container.innerHTML = '<div class="section-empty">Couldn\'t load invitations.</div>';
+    }
+  }
+
+  async function loadFees() {
+    try {
+      var res = await apiFetch('GET', '/fees/my');
+      renderFeeBanner(res);
+    } catch (err) { /* non-fatal */ }
+  }
+
+  async function loadHistory() {
+    var container = document.getElementById('history-list');
+    try {
+      var res = await apiFetch('GET', '/signups/my');
+      // Past signups: exclude active statuses shown in other sections
+      var active = { Pending: true, Invited: true, Waitlist: true };
+      var past = (res.signups || []).filter(function (s) { return !active[s.status]; });
+      renderHistory(past);
+    } catch (err) {
+      container.innerHTML = '<div class="section-empty">Couldn\'t load history.</div>';
+    }
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────
+
+  function renderFeeBanner(feeData) {
+    var bal = Number(feeData.balance) || 0;
+    if (bal <= 0) { document.getElementById('blocked-banner').style.display = 'none'; return; }
+
+    document.getElementById('balance').textContent = formatMoney(bal);
+
+    var epayUrl = settings.assu_epay_url || '#';
+    document.getElementById('epay-link').href = epayUrl;
+
+    var contact = settings.leadership_email || '';
+    var contactDiv = document.getElementById('leadership-contact');
+    if (contact) {
+      document.getElementById('leadership-email-link').href = 'mailto:' + contact;
+      document.getElementById('leadership-email-text').textContent = contact;
+      contactDiv.style.display = '';
+    } else {
+      contactDiv.style.display = 'none';
+    }
+
+    // Charge breakdown (supports both /fees/my 'charges' and /fees/mine 'outstanding')
+    var charges = feeData.charges || feeData.outstanding || [];
+    var chargeList = document.getElementById('charge-list');
+    if (charges.length) {
+      chargeList.innerHTML = '<div class="charge-list-label">This fee is from:</div><ul>' +
+        charges.map(function (c) {
+          var name = c.event_name ? esc(c.event_name) : '(event name unavailable)';
+          return '<li>' + name + ' — $' + formatMoney(c.amount) + '</li>';
+        }).join('') + '</ul>';
+    } else {
+      chargeList.innerHTML = '';
+    }
+
+    document.getElementById('blocked-banner').style.display = 'block';
+
+    // Sync member.fee_balance so button states reflect reality
+    if (member) member.fee_balance = bal;
+  }
+
+  function renderEvents(events) {
+    var container = document.getElementById('events-list');
+    if (!events || events.length === 0) {
+      container.innerHTML = '<div class="section-empty">No open events right now. Check back soon.</div>';
+      return;
+    }
+    var blocked = (member && (Number(member.fee_balance) || 0) > 0);
+    container.innerHTML = events.map(function (ev) {
+      var statusPill = '';
+      var ss = ev.signup_status;
+      if (ss === 'Pending')  statusPill = '<span class="pill signed-up">Signed up</span>';
+      else if (ss === 'Invited')   statusPill = '<span class="pill invited">Invited</span>';
+      else if (ss === 'Waitlist')  statusPill = '<span class="pill waitlist">Waitlisted</span>';
+
+      var alreadyIn = !!ss;
+      var btnDisabled = alreadyIn || blocked ? 'disabled' : '';
+      var btnLabel = alreadyIn ? 'Already signed up' : (blocked ? 'Pay fee to sign up' : 'Enter lottery');
+
+      var meta = [fmtDate(ev.event_date), ev.location].filter(Boolean).join(' · ');
+      return '<div class="card">' +
+        '<h3>' + esc(ev.name) + statusPill + '</h3>' +
+        (meta ? '<div class="meta">' + esc(meta) + '</div>' : '') +
+        (ev.description ? '<div class="desc">' + esc(ev.description) + '</div>' : '') +
+        '<button class="btn" ' + btnDisabled + ' data-id="' + esc(ev.event_id) + '" onclick="signUp(this)">' +
+          esc(btnLabel) +
+        '</button>' +
+      '</div>';
+    }).join('');
+  }
+
+  function renderInvitations(items) {
+    var container = document.getElementById('invitations-list');
+    if (!items || items.length === 0) {
+      container.innerHTML = '<div class="section-empty">No active invitations.</div>';
+      return;
+    }
+    container.innerHTML = items.map(function (it) {
+      var pill = it.status === 'Invited'
+        ? '<span class="pill invited">Invited</span>'
+        : '<span class="pill waitlist">Waitlisted</span>';
+      var meta = [fmtDate(it.event_date), it.location].filter(Boolean).join(' · ');
+      var declineBtn = it.status === 'Invited'
+        ? '<button class="btn secondary" style="margin-top:8px"' +
+            ' data-signup-id="' + esc(it.signup_id) + '"' +
+            ' data-event-name="' + esc(it.event_name) + '"' +
+            ' data-event-date="' + esc(it.event_date || '') + '"' +
+            ' onclick="openDeclineOverlay(this)">Decline invitation</button>'
+        : '';
+      return '<div class="card">' +
+        '<h3>' + esc(it.event_name) + pill + '</h3>' +
+        (meta ? '<div class="meta">' + esc(meta) + '</div>' : '') +
+        declineBtn +
+      '</div>';
+    }).join('');
+  }
+
+  function renderHistory(items) {
+    var container = document.getElementById('history-list');
+    if (!items || items.length === 0) {
+      container.innerHTML = '<div class="section-empty">No past events yet.</div>';
+      return;
+    }
+
+    var statusLabel = {
+      Attended: 'Attended',
+      Declined: 'Declined',
+      Flaked:   'Flaked',
+      Lost:     'Not selected',
+    };
+
+    container.innerHTML = items.map(function (it) {
+      var status = it.status || '';
+      var pillClass = status.toLowerCase();
+      var label = statusLabel[status] || status;
+      var pill = '<span class="pill ' + esc(pillClass) + '">' + esc(label) + '</span>';
+      var meta = [fmtDate(it.event_date), it.location].filter(Boolean).join(' · ');
+      return '<div class="card">' +
+        '<h3>' + esc(it.event_name || '(unnamed event)') + pill + '</h3>' +
+        (meta ? '<div class="meta">' + esc(meta) + '</div>' : '') +
+      '</div>';
+    }).join('');
+  }
+
+  // ── Actions ───────────────────────────────────────────────────────────────
+
+  function sendCode() {
+    var email = document.getElementById('email').value.trim();
+    if (!email) { setErr('login-err', 'Enter your email.'); return; }
+    setBtn('send-btn', true, 'Sending…');
+    setErr('login-err', '');
+    apiFetch('POST', '/auth/send-code', { email: email })
+      .then(function () {
+        setBtn('send-btn', false, 'Send code');
+        document.getElementById('email-shown').textContent = email;
+        document.getElementById('step-email').style.display = 'none';
+        document.getElementById('step-code').style.display = 'block';
+        setTimeout(function () { var el = document.getElementById('code'); if (el) el.focus(); }, 50);
+      })
+      .catch(function (err) {
+        setBtn('send-btn', false, 'Send code');
+        setErr('login-err', err.message || 'Something went wrong. Try again.');
+      });
+  }
+
+  function backToEmail() {
+    document.getElementById('step-code').style.display = 'none';
+    document.getElementById('step-email').style.display = 'block';
+    setErr('verify-err', '');
+  }
+
+  function verifyCode() {
+    var email = document.getElementById('email').value.trim();
+    var code = document.getElementById('code').value.trim();
+    if (!code) { setErr('verify-err', 'Enter the 6-digit code.'); return; }
+    setBtn('verify-btn', true, 'Logging in…');
+    setErr('verify-err', '');
+    apiFetch('POST', '/auth/verify-code', { email: email, code: code })
+      .then(function (res) {
+        setBtn('verify-btn', false, 'Log in');
+        if (!res || !res.ok) { setErr('verify-err', 'Invalid or expired code. Try again.'); return; }
+        token = res.token;
+        member = res.member;
+        try { localStorage.setItem(TOKEN_KEY, token); } catch (e) {}
+        showHome();
+      })
+      .catch(function (err) {
+        setBtn('verify-btn', false, 'Log in');
+        setErr('verify-err', err.message || 'Invalid or expired code.');
+      });
+  }
+
+  function logout() {
+    apiFetch('POST', '/auth/logout').catch(function () {});
+    try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
+    token = null; member = null;
+    showLogin();
+    // Reset login form
+    document.getElementById('step-email').style.display = 'block';
+    document.getElementById('step-code').style.display = 'none';
+    document.getElementById('email').value = '';
+    document.getElementById('code').value = '';
+    setErr('login-err', '');
+    setErr('verify-err', '');
+  }
+
+  async function signUp(btn) {
+    var eventId = btn.getAttribute('data-id');
+    var orig = btn.textContent;
+    btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Signing up…';
+    try {
+      var res = await apiFetch('POST', '/signups', { event_id: eventId });
+      if (res.alreadySignedUp) {
+        alert('You\'re already signed up for this event.');
+      }
+      await loadEvents();
+      await loadInvitations();
+    } catch (err) {
+      btn.disabled = false; btn.textContent = orig;
+      alert(err.message || 'Couldn\'t sign up. Try again.');
+    }
+  }
+
+  // Decline overlay
+  function openDeclineOverlay(btn) {
+    pendingDeclineSignupId = btn.getAttribute('data-signup-id');
+    var eventName = btn.getAttribute('data-event-name');
+    var eventDate = btn.getAttribute('data-event-date');
+
+    document.getElementById('decline-event-name').textContent =
+      eventName + (eventDate ? ' — ' + fmtDate(eventDate) : '');
+
+    var graceHours = parseInt(settings.decline_grace_window_hours) || 24;
+    var feeAmt = settings.flake_fee_amount || '30';
+    var isLate = false;
+    if (eventDate) {
+      var diff = new Date(eventDate) - new Date();
+      isLate = diff >= 0 && diff < graceHours * 60 * 60 * 1000;
+    }
+
+    var lateWarn = document.getElementById('decline-late-warning');
+    if (isLate) {
+      lateWarn.textContent =
+        '⚠️ This decline is within ' + graceHours + ' hours of the event start. ' +
+        'It will count as a flake and a $' + feeAmt + ' fee will be added to your account.';
+      lateWarn.style.display = 'block';
+      document.getElementById('decline-confirm-btn').textContent = 'Yes, I understand — decline';
+    } else {
+      lateWarn.style.display = 'none';
+      document.getElementById('decline-confirm-btn').textContent = 'Yes, decline';
+    }
+
+    document.getElementById('decline-overlay').style.display = 'flex';
+  }
+
+  function closeDeclineOverlay() {
+    document.getElementById('decline-overlay').style.display = 'none';
+    pendingDeclineSignupId = null;
+  }
+
+  async function confirmDecline() {
+    if (!pendingDeclineSignupId) return;
+    var confirmBtn = document.getElementById('decline-confirm-btn');
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = '<span class="spinner"></span>Declining…';
+    try {
+      var res = await apiFetch('POST', '/signups/' + pendingDeclineSignupId + '/decline');
+      closeDeclineOverlay();
+      if (res.status === 'Flaked') {
+        alert(
+          'Decline received — but within the ' + (res.graceHours || 24) + '-hour window.\n\n' +
+          'This counts as a flake. A $' + (res.feeAmount || 30) + ' fee has been added to your account.'
+        );
+      }
+      await loadInvitations();
+      await loadFees();
+    } catch (err) {
+      alert(err.message || 'Couldn\'t decline. Try again.');
+    } finally {
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = 'Yes, decline';
+    }
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  async function apiFetch(method, path, body) {
+    var opts = {
+      method: method,
+      headers: { 'Content-Type': 'application/json' },
+    };
+    if (token) opts.headers['x-session-token'] = token;
+    if (body) opts.body = JSON.stringify(body);
+    var resp = await fetch(API + path, opts);
+    var data = await resp.json().catch(function () { return {}; });
+    if (!resp.ok) {
+      var err = new Error(data.error || ('Request failed: ' + resp.status));
+      err.status = resp.status;
+      throw err;
+    }
+    return data;
+  }
+
+  function setBtn(id, busy, label) {
+    var b = document.getElementById(id);
+    if (!b) return;
+    b.disabled = busy;
+    b.innerHTML = busy ? '<span class="spinner"></span>' + label : label;
+  }
+
+  function setErr(id, msg) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = msg;
+  }
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function formatMoney(n) {
+    var num = Number(n) || 0;
+    return num % 1 === 0 ? String(num) : num.toFixed(2);
+  }
+
+  function fmtDate(d) {
+    if (!d) return '';
+    try {
+      return new Date(d).toLocaleDateString('en-US', {
+        weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
+        timeZone: 'America/Los_Angeles',
+      });
+    } catch (e) { return String(d); }
+  }
+
+  // Close overlay on background click
+  document.addEventListener('click', function (e) {
+    if (e.target.id === 'decline-overlay') closeDeclineOverlay();
+  });
+
+  // Enter key support in login
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter') return;
+    if (!document.getElementById('view-login').classList.contains('active')) return;
+    var step = document.getElementById('step-code');
+    if (step && step.style.display !== 'none') { verifyCode(); }
+    else { sendCode(); }
+  });
+</script>
+</body>
+</html>
