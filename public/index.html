@@ -80,6 +80,19 @@
     .pill.declined  { background: #f0f0f0; color: #555; }
     .pill.flaked    { background: #fdecea; color: #8c1a14; }
     .pill.lost      { background: #f0f0f0; color: #555; }
+    .pill.not-signed-up { background: #f0f0f0; color: #555; }
+    .summary-table-wrap {
+      background: white; border: 1px solid var(--line); border-radius: 6px;
+      overflow-x: auto; margin-bottom: 20px;
+    }
+    .summary-table { width: 100%; border-collapse: collapse; }
+    .summary-table th, .summary-table td { padding: 10px 14px; text-align: left; font-size: 14px; white-space: nowrap; }
+    .summary-table thead th {
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px;
+      color: var(--muted); font-weight: 600; background: var(--cream);
+      border-bottom: 1px solid var(--line);
+    }
+    .summary-table tbody tr:not(:last-child) td { border-bottom: 1px solid var(--line); }
     .banner {
       background: var(--warn-bg);
       border-left: 4px solid var(--warn-border);
@@ -204,6 +217,16 @@
       </div>
     </div>
 
+    <div id="events-summary-section" style="display:none">
+      <h2>Your event status</h2>
+      <div class="summary-table-wrap">
+        <table class="summary-table">
+          <thead><tr><th>Event</th><th>Date</th><th>Your status</th></tr></thead>
+          <tbody id="events-summary-body"></tbody>
+        </table>
+      </div>
+    </div>
+
     <h2>Open events</h2>
     <div id="events-list"><div class="loading-pulse"></div><div class="loading-pulse"></div></div>
 
@@ -294,10 +317,12 @@
     try {
       var res = await apiFetch('GET', '/events');
       var events = (res.events || []).filter(function (e) {
-        return e.status === 'Open' && !e.signup_status;
+        return e.status === 'Open' || e.signup_status;
       });
+      renderEventsSummary(events);
       renderEvents(events);
     } catch (err) {
+      document.getElementById('events-summary-section').style.display = 'none';
       container.innerHTML = '<div class="section-empty">Couldn\'t load events. ' + esc(String(err.message || err)) + '</div>';
     }
   }
@@ -372,6 +397,28 @@
     if (member) member.fee_balance = bal;
   }
 
+  // Shared status-pill rendering for a member's signup_status on an event.
+  function signupStatusPill(ss, showNotSignedUp) {
+    if (ss === 'Pending')  return '<span class="pill signed-up">Signed up</span>';
+    if (ss === 'Invited')  return '<span class="pill invited">Invited</span>';
+    if (ss === 'Waitlist') return '<span class="pill waitlist">Waitlisted</span>';
+    return showNotSignedUp ? '<span class="pill not-signed-up">Not signed up</span>' : '';
+  }
+
+  function renderEventsSummary(events) {
+    var section = document.getElementById('events-summary-section');
+    var body = document.getElementById('events-summary-body');
+    if (!events || events.length === 0) { section.style.display = 'none'; return; }
+    section.style.display = '';
+    body.innerHTML = events.map(function (ev) {
+      return '<tr>' +
+        '<td>' + esc(ev.name) + '</td>' +
+        '<td>' + esc(fmtDate(ev.event_date)) + '</td>' +
+        '<td>' + signupStatusPill(ev.signup_status, true) + '</td>' +
+      '</tr>';
+    }).join('');
+  }
+
   function renderEvents(events) {
     var container = document.getElementById('events-list');
     if (!events || events.length === 0) {
@@ -380,11 +427,8 @@
     }
     var blocked = (member && (Number(member.fee_balance) || 0) > 0);
     container.innerHTML = events.map(function (ev) {
-      var statusPill = '';
       var ss = ev.signup_status;
-      if (ss === 'Pending')  statusPill = '<span class="pill signed-up">Signed up</span>';
-      else if (ss === 'Invited')   statusPill = '<span class="pill invited">Invited</span>';
-      else if (ss === 'Waitlist')  statusPill = '<span class="pill waitlist">Waitlisted</span>';
+      var statusPill = signupStatusPill(ss, false);
 
       var alreadyIn = !!ss;
       var btnDisabled = alreadyIn || blocked ? 'disabled' : '';
