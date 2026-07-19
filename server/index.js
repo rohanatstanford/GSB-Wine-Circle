@@ -73,9 +73,15 @@ const apiLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// apiLimiter first: since /api/auth/send-code and /verify-code also match
+// the general '/api' prefix, both middlewares run on those routes either
+// way (registration order only changes header-overwrite order, not which
+// middleware applies) - registering the stricter authLimiter LAST makes
+// its numbers the ones actually visible in the response headers, instead
+// of the general limiter's silently masking it.
+app.use('/api', apiLimiter);
 app.use('/api/auth/send-code', authLimiter);
 app.use('/api/auth/verify-code', authLimiter);
-app.use('/api', apiLimiter);
 
 // ── Session resolution ────────────────────────────────────────────────────────
 app.use(sessionMiddleware);
