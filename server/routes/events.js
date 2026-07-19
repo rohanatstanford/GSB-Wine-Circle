@@ -13,17 +13,12 @@ const {
 
 const router = express.Router();
 
-// GET /api/events — list events
-// Members see open + their own signups; admins see all.
+// GET /api/events — member-scoped view: open events + events the caller has
+// signed up for. Always this view regardless of admin status, so an admin
+// account still gets a genuine member experience on the member portal
+// instead of the admin's full event list bleeding through.
 router.get('/', requireAuth, async (req, res) => {
   try {
-    if (req.isAdmin) {
-      const { rows } = await db.query(
-        `SELECT * FROM events ORDER BY event_date DESC NULLS LAST`
-      );
-      return res.json({ events: rows });
-    }
-    // Members: open events + events they've signed up for
     const { rows } = await db.query(
       `SELECT DISTINCT e.*,
               s.signup_id, s.status AS signup_status, s.lottery_rank,
@@ -34,6 +29,18 @@ router.get('/', requireAuth, async (req, res) => {
        ORDER BY e.event_date ASC NULLS LAST`,
       [req.member.member_id]
     );
+    return res.json({ events: rows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+// GET /api/events/all — admin: every event regardless of status, for the
+// admin portal's event management list. Must be declared before /:id.
+router.get('/all', requireAdmin, async (req, res) => {
+  try {
+    const { rows } = await db.query(`SELECT * FROM events ORDER BY event_date DESC NULLS LAST`);
     return res.json({ events: rows });
   } catch (err) {
     console.error(err);

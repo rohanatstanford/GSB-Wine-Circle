@@ -313,6 +313,7 @@
   <header class="app-header">
     <h1>🍷 Wine Circle Admin</h1>
     <span class="user-info" id="header-user"></span>
+    <a href="/" class="btn-logout" style="text-decoration:none;display:inline-block" onclick="return goToMember();">Member View</a>
     <button class="btn-logout" onclick="logout()">Sign Out</button>
   </header>
 
@@ -892,6 +893,14 @@ async function verifyCode() {
   }
 }
 
+// Reuse this same session token for the member portal so admins don't have
+// to log in twice — the token is just a bearer credential the server
+// re-validates against the members table on every request either way.
+function goToMember() {
+  try { localStorage.setItem('wc_session_v1', sessionToken); } catch (e) {}
+  return true;
+}
+
 async function logout() {
   try { await api('POST', '/auth/logout'); } catch {}
   sessionToken = null;
@@ -953,7 +962,7 @@ async function loadEvents() {
   const tbody = document.getElementById('events-tbody');
   tbody.innerHTML = '<tr class="loading-row"><td colspan="6"><span class="spinner"></span> Loading…</td></tr>';
   try {
-    const res = await api('GET', '/events');
+    const res = await api('GET', '/events/all');
     const events = res.events || res;
     let filtered = events;
     if (statusFilter) filtered = events.filter(e => e.status === statusFilter);

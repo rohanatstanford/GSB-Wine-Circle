@@ -30,18 +30,30 @@
       color: white;
       padding: 14px 20px;
       display: flex;
+      flex-wrap: wrap;
+      row-gap: 8px;
       justify-content: space-between;
       align-items: center;
     }
     header.wc-header h1 { margin: 0; font-size: 18px; font-weight: 500; letter-spacing: 0.3px; }
-    header.wc-header .who { font-size: 13px; opacity: 0.9; }
+    header.wc-header .who {
+      font-size: 13px; opacity: 0.9; overflow: hidden; text-overflow: ellipsis;
+      white-space: nowrap; max-width: 40vw; display: inline-block; vertical-align: middle;
+    }
     header.wc-header button {
       color: white; background: transparent; border: 1px solid rgba(255,255,255,0.4);
       padding: 4px 10px; font-size: 12px; border-radius: 4px; cursor: pointer;
       margin-left: 8px;
     }
     header.wc-header button:hover { background: rgba(255,255,255,0.1); }
-    main { max-width: 720px; margin: 0 auto; padding: 24px 20px 60px; }
+    main { max-width: 1040px; margin: 0 auto; padding: 24px 20px 60px; }
+    .home-layout { display: flex; flex-direction: column; gap: 24px; }
+    .home-main { min-width: 0; }
+    @media (min-width: 860px) {
+      .home-layout { flex-direction: row; align-items: flex-start; }
+      .home-main { flex: 1; }
+      .home-side { width: 300px; flex-shrink: 0; position: sticky; top: 20px; }
+    }
     h2 { font-size: 20px; margin: 32px 0 12px; font-weight: 600; }
     h2:first-child { margin-top: 0; }
     .section-empty { color: var(--muted); font-style: italic; padding: 16px 0; }
@@ -86,7 +98,7 @@
       overflow-x: auto; margin-bottom: 20px;
     }
     .summary-table { width: 100%; border-collapse: collapse; }
-    .summary-table th, .summary-table td { padding: 10px 14px; text-align: left; font-size: 14px; white-space: nowrap; }
+    .summary-table th, .summary-table td { padding: 10px 14px; text-align: left; font-size: 14px; overflow-wrap: break-word; }
     .summary-table thead th {
       font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px;
       color: var(--muted); font-weight: 600; background: var(--cream);
@@ -158,6 +170,34 @@
       padding: 8px 10px; border-radius: 3px; margin-bottom: 16px; font-size: 13px;
     }
     .overlay-actions { display: flex; gap: 8px; justify-content: flex-end; }
+    /* Calendar */
+    .calendar-wrap { background: white; border: 1px solid var(--line); border-radius: 6px; padding: 16px; }
+    .cal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; font-weight: 600; font-size: 14px; }
+    .cal-nav {
+      background: none; border: none; font-size: 18px; cursor: pointer;
+      color: var(--burgundy); padding: 0 8px; line-height: 1;
+    }
+    .cal-nav:hover { color: var(--burgundy-dark); }
+    .cal-weekdays {
+      display: grid; grid-template-columns: repeat(7, 1fr); text-align: center;
+      font-size: 11px; color: var(--muted); margin-bottom: 4px;
+    }
+    .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+    .cal-cell {
+      min-height: 34px; display: flex; flex-direction: column; align-items: center;
+      justify-content: flex-start; padding-top: 4px; border-radius: 4px; font-size: 12px;
+    }
+    .cal-cell.empty { visibility: hidden; }
+    .cal-cell.has-events { background: var(--cream); }
+    .cal-dots { display: flex; gap: 2px; margin-top: 3px; flex-wrap: wrap; justify-content: center; }
+    .cal-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+    .dot-scheduled { background: #b8a8aa; }
+    .dot-signed-up { background: #2a4a8a; }
+    .dot-won       { background: #2a6638; }
+    .dot-lost      { background: #8a5a1a; }
+    .cal-legend { display: flex; flex-wrap: wrap; gap: 10px 14px; margin-top: 12px; font-size: 12px; color: var(--muted); }
+    .cal-legend .legend-item { display: flex; align-items: center; gap: 4px; }
+    .cal-legend .cal-dot { width: 8px; height: 8px; }
     /* Loading skeleton */
     .loading-pulse {
       height: 80px; background: linear-gradient(90deg, #f0e8e8 25%, #ebe0e0 50%, #f0e8e8 75%);
@@ -198,43 +238,66 @@
     <h1 id="home-org-name">Wine Circle</h1>
     <div style="display:flex;align-items:center;gap:4px">
       <span class="who" id="who"></span>
-      <a href="/admin" id="admin-link" class="admin-link" style="display:none">Admin</a>
+      <a href="/admin" id="admin-link" class="admin-link" style="display:none" onclick="return goToAdmin();">Admin</a>
       <button onclick="logout()">Log out</button>
     </div>
   </header>
   <main>
-    <!-- Fee banner -->
-    <div id="blocked-banner" class="banner" style="display:none">
-      <strong>You have an outstanding flake fee of $<span id="balance"></span>.</strong>
-      <div id="charge-list" class="charge-list"></div>
-      <div class="banner-actions">
-        Pay via <a id="epay-link" href="#" target="_blank" rel="noopener">ASSU ePay</a>.
-        Once a leader confirms your payment, you'll be unblocked.
+    <div class="home-layout">
+      <div class="home-main">
+        <!-- Fee banner -->
+        <div id="blocked-banner" class="banner" style="display:none">
+          <strong>You have an outstanding flake fee of $<span id="balance"></span>.</strong>
+          <div id="charge-list" class="charge-list"></div>
+          <div class="banner-actions">
+            Pay via <a id="epay-link" href="#" target="_blank" rel="noopener">ASSU ePay</a>.
+            Once a leader confirms your payment, you'll be unblocked.
+          </div>
+          <div class="banner-contact" id="leadership-contact" style="display:none">
+            Questions or appeals:
+            <a id="leadership-email-link" href="#"><span id="leadership-email-text"></span></a>
+          </div>
+        </div>
+
+        <div id="events-summary-section" style="display:none">
+          <h2>Your event status</h2>
+          <div class="summary-table-wrap">
+            <table class="summary-table">
+              <thead><tr><th>Event</th><th>Date</th><th>Your status</th></tr></thead>
+              <tbody id="events-summary-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <h2>Open events</h2>
+        <div id="events-list"><div class="loading-pulse"></div><div class="loading-pulse"></div></div>
+
+        <h2>Your invitations</h2>
+        <div id="invitations-list"><div class="loading-pulse"></div></div>
+
+        <h2>My history</h2>
+        <div id="history-list"><div class="loading-pulse"></div></div>
       </div>
-      <div class="banner-contact" id="leadership-contact" style="display:none">
-        Questions or appeals:
-        <a id="leadership-email-link" href="#"><span id="leadership-email-text"></span></a>
-      </div>
+
+      <aside class="home-side">
+        <h2>Calendar</h2>
+        <div class="calendar-wrap">
+          <div class="cal-header">
+            <button class="cal-nav" onclick="calPrevMonth()" aria-label="Previous month">‹</button>
+            <span id="cal-month-label"></span>
+            <button class="cal-nav" onclick="calNextMonth()" aria-label="Next month">›</button>
+          </div>
+          <div class="cal-weekdays"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div>
+          <div class="cal-grid" id="cal-grid"></div>
+          <div class="cal-legend">
+            <span class="legend-item"><span class="cal-dot dot-scheduled"></span> Scheduled</span>
+            <span class="legend-item"><span class="cal-dot dot-signed-up"></span> Signed up</span>
+            <span class="legend-item"><span class="cal-dot dot-won"></span> Won lottery</span>
+            <span class="legend-item"><span class="cal-dot dot-lost"></span> Lost lottery</span>
+          </div>
+        </div>
+      </aside>
     </div>
-
-    <div id="events-summary-section" style="display:none">
-      <h2>Your event status</h2>
-      <div class="summary-table-wrap">
-        <table class="summary-table">
-          <thead><tr><th>Event</th><th>Date</th><th>Your status</th></tr></thead>
-          <tbody id="events-summary-body"></tbody>
-        </table>
-      </div>
-    </div>
-
-    <h2>Open events</h2>
-    <div id="events-list"><div class="loading-pulse"></div><div class="loading-pulse"></div></div>
-
-    <h2>Your invitations</h2>
-    <div id="invitations-list"><div class="loading-pulse"></div></div>
-
-    <h2>My history</h2>
-    <div id="history-list"><div class="loading-pulse"></div></div>
   </main>
 </div>
 
@@ -258,6 +321,9 @@
   var member = null;
   var settings = {};
   var pendingDeclineSignupId = null;
+  var calMonthCursor = null;   // first-of-month Date being displayed
+  var calDayMap = {};          // 'YYYY-MM-DD' -> [{name, category}]
+  var calAutoFocused = false;  // jump to the nearest event's month once, on first load
 
   // ── Init ──────────────────────────────────────────────────────────────────
 
@@ -310,6 +376,7 @@
     loadInvitations();
     loadFees();
     loadHistory();
+    loadCalendar();
   }
 
   async function loadEvents() {
@@ -499,6 +566,123 @@
     }).join('');
   }
 
+  // ── Calendar ──────────────────────────────────────────────────────────────
+
+  // Bucket a signup's status into one of the four dot categories.
+  function calCategorize(status) {
+    if (!status) return 'scheduled';
+    if (status === 'Pending') return 'signed-up';
+    if (status === 'Invited' || status === 'Attended' || status === 'Flaked' || status === 'Dropped') return 'won';
+    if (status === 'Waitlist' || status === 'Lost') return 'lost';
+    return 'scheduled';
+  }
+
+  // Local (Pacific) calendar-day key for an ISO timestamp, so an event that's
+  // 6:30pm Pacific but past midnight UTC still lands on the right day.
+  function calDayKey(isoString) {
+    if (!isoString) return null;
+    try {
+      return new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit',
+      }).format(new Date(isoString));
+    } catch (e) { return null; }
+  }
+
+  function pad2(n) { return n < 10 ? '0' + n : String(n); }
+
+  async function loadCalendar() {
+    try {
+      var results = await Promise.all([
+        apiFetch('GET', '/events'),
+        apiFetch('GET', '/signups/my'),
+      ]);
+      var events = results[0].events || [];
+      var signups = results[1].signups || [];
+
+      var map = {};
+      function addDot(dateStr, name, category) {
+        var day = calDayKey(dateStr);
+        if (!day) return;
+        if (!map[day]) map[day] = [];
+        map[day].push({ name: name, category: category });
+      }
+
+      var signupByEvent = {};
+      signups.forEach(function (s) { signupByEvent[s.event_id] = s; });
+
+      var seenEventIds = {};
+      events.forEach(function (ev) {
+        seenEventIds[ev.event_id] = true;
+        var s = signupByEvent[ev.event_id];
+        addDot(ev.event_date, ev.name, calCategorize(s ? s.status : ev.signup_status));
+      });
+      // Historical signups (e.g. a Completed event) that fell out of the
+      // open+relevant events list above still belong on the calendar.
+      signups.forEach(function (s) {
+        if (seenEventIds[s.event_id]) return;
+        addDot(s.event_date, s.event_name, calCategorize(s.status));
+      });
+
+      calDayMap = map;
+
+      if (!calAutoFocused) {
+        calAutoFocused = true;
+        var allDays = Object.keys(map).sort();
+        if (allDays.length) {
+          var nearest = new Date(allDays[0] + 'T00:00:00');
+          calMonthCursor = new Date(nearest.getFullYear(), nearest.getMonth(), 1);
+        }
+      }
+      renderCalendar();
+    } catch (err) {
+      var grid = document.getElementById('cal-grid');
+      if (grid) grid.innerHTML = '';
+    }
+  }
+
+  function calPrevMonth() {
+    calMonthCursor.setMonth(calMonthCursor.getMonth() - 1);
+    renderCalendar();
+  }
+
+  function calNextMonth() {
+    calMonthCursor.setMonth(calMonthCursor.getMonth() + 1);
+    renderCalendar();
+  }
+
+  function renderCalendar() {
+    if (!calMonthCursor) calMonthCursor = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+
+    var year = calMonthCursor.getFullYear();
+    var month = calMonthCursor.getMonth();
+
+    document.getElementById('cal-month-label').textContent =
+      calMonthCursor.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+    var firstDay = new Date(year, month, 1);
+    var startWeekday = firstDay.getDay();
+    var daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    var cells = [];
+    for (var i = 0; i < startWeekday; i++) cells.push('<div class="cal-cell empty"></div>');
+    for (var d = 1; d <= daysInMonth; d++) {
+      var dateKey = year + '-' + pad2(month + 1) + '-' + pad2(d);
+      var dots = calDayMap[dateKey] || [];
+      var uniqueCats = [];
+      dots.forEach(function (x) { if (uniqueCats.indexOf(x.category) === -1) uniqueCats.push(x.category); });
+      var dotHtml = uniqueCats.map(function (c) { return '<span class="cal-dot dot-' + c + '"></span>'; }).join('');
+      var titleAttr = dots.map(function (x) { return x.name; }).join(', ');
+      cells.push(
+        '<div class="cal-cell' + (dots.length ? ' has-events' : '') + '"' +
+          (titleAttr ? ' title="' + esc(titleAttr) + '"' : '') + '>' +
+          '<span class="cal-daynum">' + d + '</span>' +
+          '<div class="cal-dots">' + dotHtml + '</div>' +
+        '</div>'
+      );
+    }
+    document.getElementById('cal-grid').innerHTML = cells.join('');
+  }
+
   // ── Actions ───────────────────────────────────────────────────────────────
 
   function sendCode() {
@@ -547,6 +731,14 @@
       });
   }
 
+  // Reuse this same session token for the admin portal so admins don't have
+  // to log in twice — the token is just a bearer credential the server
+  // re-validates against the members table on every request either way.
+  function goToAdmin() {
+    try { localStorage.setItem('admin_token', token); } catch (e) {}
+    return true;
+  }
+
   function logout() {
     apiFetch('POST', '/auth/logout').catch(function () {});
     try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
@@ -572,6 +764,7 @@
       }
       await loadEvents();
       await loadInvitations();
+      await loadCalendar();
     } catch (err) {
       btn.disabled = false; btn.textContent = orig;
       alert(err.message || 'Couldn\'t sign up. Try again.');
@@ -631,6 +824,7 @@
       }
       await loadInvitations();
       await loadFees();
+      await loadCalendar();
     } catch (err) {
       alert(err.message || 'Couldn\'t decline. Try again.');
     } finally {
