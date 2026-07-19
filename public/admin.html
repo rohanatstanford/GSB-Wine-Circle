@@ -257,7 +257,7 @@
     .back-link:hover { text-decoration: underline; }
     .toggle-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
     .toggle-row label { margin: 0; font-size: 13px; color: var(--text); font-weight: 500; cursor: pointer; flex: 1; }
-    .toggle-switch { position: relative; width: 38px; height: 22px; }
+    .toggle-switch { position: relative; width: 38px; height: 22px; flex: none; }
     .toggle-switch input { opacity: 0; width: 0; height: 0; }
     .toggle-slider { position: absolute; inset: 0; background: var(--border); border-radius: 22px; cursor: pointer; transition: background .2s; }
     .toggle-switch input:checked + .toggle-slider { background: var(--wine); }
@@ -754,7 +754,7 @@
       </div>
       <div class="form-group">
         <label for="ev-description">Description</label>
-        <textarea id="ev-description" rows="3" placeholder="Event details for members..."></textarea>
+        <textarea id="ev-description" rows="8" placeholder="Event details for members..."></textarea>
       </div>
       <div class="form-group">
         <label for="ev-host-notes">Host Notes (admin-only)</label>
@@ -1182,7 +1182,8 @@ async function openEditEventById(eventId, e) {
   if (e) { e.stopPropagation(); e.preventDefault(); }
   editingEventId = eventId;
   try {
-    const ev = await api('GET', `/events/${eventId}`);
+    const evRes = await api('GET', `/events/${eventId}`);
+    const ev = evRes.event || evRes;
     document.getElementById('modal-event-title').textContent = 'Edit Event';
     document.getElementById('modal-event-submit').textContent = 'Save Changes';
     clearAlert('modal-event-alert');

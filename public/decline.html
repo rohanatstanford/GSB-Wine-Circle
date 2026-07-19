@@ -155,7 +155,7 @@
         '<h2>Decline invitation to:</h2>' +
         '<p style="font-size:18px;font-weight:600;margin:0 0 4px">' + esc(invite.event_name || invite.event_id) + '</p>' +
         '<p class="meta">' + fmtDate(invite.event_date) + (invite.location ? ' · ' + esc(invite.location) : '') + '</p>' +
-        (invite.description ? '<p style="font-size:14px;color:#555;margin-bottom:12px">' + esc(invite.description) + '</p>' : '') +
+        (invite.description ? '<p style="font-size:14px;color:#555;margin-bottom:12px;white-space:pre-wrap">' + esc(invite.description) + '</p>' : '') +
         lateWarning +
         '<p>Are you sure you want to decline this invitation?</p>' +
         '<button class="btn danger" id="decline-btn" onclick="submitDecline()">' +
