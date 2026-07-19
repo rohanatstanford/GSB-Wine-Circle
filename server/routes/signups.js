@@ -397,4 +397,60 @@ router.post('/:id/promote', requireAdmin, async (req, res) => {
   }
 });
 
+// POST /api/signups/:id/demote — admin: manually remove a member from the
+// Invited (lottery-winner) list, sending them back to Waitlist. Frees their
+// slot, so the next waitlisted member is auto-promoted if the event allows it.
+router.post('/:id/demote', requireAdmin, async (req, res) => {
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: existing } = await client.query(
+      `SELECT s.*, e.auto_invite_enabled
+       FROM signups s JOIN events e ON e.event_id = s.event_id
+       WHERE s.signup_id = $1 FOR UPDATE`,
+      [req.params.id]
+    );
+    if (!existing.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Signup not found' }); }
+    const s = existing[0];
+    if (s.status !== 'Invited') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Signup is not currently Invited' });
+    }
+
+    const { rows } = await client.query(
+      `UPDATE signups SET status = 'Waitlist', decline_token = NULL, invite_sent_at = NULL
+       WHERE signup_id = $1 RETURNING *`,
+      [req.params.id]
+    );
+
+    let promoted = null;
+    if (s.auto_invite_enabled) {
+      promoted = await promoteNextWaitlist(client, s.event_id);
+    }
+
+    await client.query('COMMIT');
+
+    if (promoted) {
+      const { rows: evRows } = await db.query('SELECT * FROM events WHERE event_id = $1', [s.event_id]);
+      if (evRows.length) {
+        const settings = await getSettings(db);
+        emailSvc.emailWaitlistPromotion(
+          { email: promoted.member_email, full_name: promoted.member_name },
+          evRows[0], promoted.newDeclineToken, settings
+        ).catch(e => console.error('Promotion email error:', e.message));
+      }
+    }
+
+    await audit(req.member.email, 'DemoteFromInvited', 'signups', req.params.id,
+      { status: 'Invited' }, { status: 'Waitlist', promoted: promoted ? promoted.signup_id : null });
+    return res.json({ signup: rows[0], promoted: !!promoted });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error(err);
+    res.status(500).json({ error: 'Internal error' });
+  } finally {
+    client.release();
+  }
+});
+
 module.exports = router;

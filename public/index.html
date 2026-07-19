@@ -67,6 +67,8 @@
     .card h3 { margin: 0 0 4px; font-size: 16px; font-weight: 600; }
     .card .meta { color: var(--muted); font-size: 13px; margin-bottom: 8px; }
     .card .desc { font-size: 14px; margin-bottom: 12px; color: var(--ink); white-space: pre-wrap; }
+    .history-card { cursor: pointer; }
+    .history-card:hover { border-color: var(--burgundy); }
     .btn {
       background: var(--burgundy);
       color: white; border: none;
@@ -188,7 +190,8 @@
       justify-content: flex-start; padding-top: 4px; border-radius: 4px; font-size: 12px;
     }
     .cal-cell.empty { visibility: hidden; }
-    .cal-cell.has-events { background: var(--cream); }
+    .cal-cell.has-events { background: var(--cream); cursor: pointer; }
+    .cal-cell.has-events:hover { background: var(--warn-bg); }
     .cal-dots { display: flex; gap: 2px; margin-top: 3px; flex-wrap: wrap; justify-content: center; }
     .cal-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
     .dot-scheduled { background: #b8a8aa; }
@@ -314,6 +317,30 @@
   </div>
 </div>
 
+<!-- Event detail overlay (My history + calendar click-through) -->
+<div id="event-detail-overlay" class="overlay" style="display:none">
+  <div class="overlay-box">
+    <h3 id="ed-name"></h3>
+    <p class="meta" id="ed-meta" style="margin:0 0 10px"></p>
+    <p class="small" id="ed-status-line" style="margin:0 0 10px"></p>
+    <div id="ed-desc" class="small" style="white-space:pre-wrap;max-height:40vh;overflow-y:auto;margin-bottom:16px"></div>
+    <div class="overlay-actions">
+      <button class="btn secondary" onclick="closeEventDetail()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Day-events picker (calendar day click, when more than one event lands on a day) -->
+<div id="day-events-overlay" class="overlay" style="display:none">
+  <div class="overlay-box">
+    <h3 id="day-events-title"></h3>
+    <div id="day-events-list"></div>
+    <div class="overlay-actions">
+      <button class="btn secondary" onclick="closeDayEventsOverlay()">Close</button>
+    </div>
+  </div>
+</div>
+
 <script>
   var API = '/api';
   var TOKEN_KEY = 'wc_session_v1';
@@ -383,8 +410,11 @@
     var container = document.getElementById('events-list');
     try {
       var res = await apiFetch('GET', '/events');
+      // Completed/Cancelled events belong in "My history" only, even if the
+      // member has a signup on them - they're not upcoming anymore.
       var events = (res.events || []).filter(function (e) {
-        return e.status === 'Open' || e.signup_status;
+        var upcoming = e.status !== 'Completed' && e.status !== 'Cancelled';
+        return upcoming && (e.status === 'Open' || e.signup_status);
       });
       renderEventsSummary(events);
       renderEvents(events);
@@ -566,11 +596,45 @@
       var label = statusLabel[status] || status;
       var pill = '<span class="pill ' + esc(pillClass) + '">' + esc(label) + '</span>';
       var meta = [fmtDate(it.event_date), it.location].filter(Boolean).join(' · ');
-      return '<div class="card">' +
+      return '<div class="card history-card" data-event-id="' + esc(it.event_id) + '" onclick="openEventDetail(this.getAttribute(\'data-event-id\'))">' +
         '<h3>' + esc(it.event_name || '(unnamed event)') + pill + '</h3>' +
         (meta ? '<div class="meta">' + esc(meta) + '</div>' : '') +
       '</div>';
     }).join('');
+  }
+
+  // ── Event detail overlay (My history cards + calendar day click) ──────────
+
+  var eventDetailStatusLabel = {
+    Pending:  'Signed up',
+    Invited:  'Invited',
+    Waitlist: 'Waitlisted',
+    Attended: 'Attended',
+    Declined: 'Declined',
+    Dropped:  'Declined',
+    Flaked:   'Flaked',
+    Lost:     'Not selected',
+  };
+
+  async function openEventDetail(eventId) {
+    try {
+      var res = await apiFetch('GET', '/events/' + eventId);
+      var ev = res.event || res;
+      document.getElementById('ed-name').textContent = ev.name;
+      var meta = [fmtDate(ev.event_date), ev.location].filter(Boolean).join(' · ');
+      document.getElementById('ed-meta').textContent = meta;
+      document.getElementById('ed-desc').textContent = ev.description || '';
+      var mySignup = res.mySignup;
+      var statusLine = mySignup ? ('Your status: ' + (eventDetailStatusLabel[mySignup.status] || mySignup.status)) : '';
+      document.getElementById('ed-status-line').textContent = statusLine;
+      document.getElementById('event-detail-overlay').style.display = 'flex';
+    } catch (err) {
+      alert('Couldn\'t load event details.');
+    }
+  }
+
+  function closeEventDetail() {
+    document.getElementById('event-detail-overlay').style.display = 'none';
   }
 
   // ── Calendar ──────────────────────────────────────────────────────────────
@@ -607,11 +671,11 @@
       var signups = results[1].signups || [];
 
       var map = {};
-      function addDot(dateStr, name, category) {
+      function addDot(dateStr, eventId, name, category) {
         var day = calDayKey(dateStr);
         if (!day) return;
         if (!map[day]) map[day] = [];
-        map[day].push({ name: name, category: category });
+        map[day].push({ event_id: eventId, name: name, category: category });
       }
 
       var signupByEvent = {};
@@ -621,13 +685,13 @@
       events.forEach(function (ev) {
         seenEventIds[ev.event_id] = true;
         var s = signupByEvent[ev.event_id];
-        addDot(ev.event_date, ev.name, calCategorize(s ? s.status : ev.signup_status));
+        addDot(ev.event_date, ev.event_id, ev.name, calCategorize(s ? s.status : ev.signup_status));
       });
       // Historical signups (e.g. a Completed event) that fell out of the
       // open+relevant events list above still belong on the calendar.
       signups.forEach(function (s) {
         if (seenEventIds[s.event_id]) return;
-        addDot(s.event_date, s.event_name, calCategorize(s.status));
+        addDot(s.event_date, s.event_id, s.event_name, calCategorize(s.status));
       });
 
       calDayMap = map;
@@ -679,15 +743,39 @@
       dots.forEach(function (x) { if (uniqueCats.indexOf(x.category) === -1) uniqueCats.push(x.category); });
       var dotHtml = uniqueCats.map(function (c) { return '<span class="cal-dot dot-' + c + '"></span>'; }).join('');
       var titleAttr = dots.map(function (x) { return x.name; }).join(', ');
+      var clickAttr = dots.length ? ' onclick="calDayClick(\'' + dateKey + '\')"' : '';
       cells.push(
         '<div class="cal-cell' + (dots.length ? ' has-events' : '') + '"' +
-          (titleAttr ? ' title="' + esc(titleAttr) + '"' : '') + '>' +
+          (titleAttr ? ' title="' + esc(titleAttr) + '"' : '') + clickAttr + '>' +
           '<span class="cal-daynum">' + d + '</span>' +
           '<div class="cal-dots">' + dotHtml + '</div>' +
         '</div>'
       );
     }
     document.getElementById('cal-grid').innerHTML = cells.join('');
+  }
+
+  // Clicking a day shows which event(s) are on it - straight to the detail
+  // overlay if there's just one, otherwise a short picker list first.
+  function calDayClick(dateKey) {
+    var dots = calDayMap[dateKey] || [];
+    if (!dots.length) return;
+    if (dots.length === 1) { openEventDetail(dots[0].event_id); return; }
+
+    var label = new Date(dateKey + 'T12:00:00').toLocaleDateString('en-US', {
+      weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
+    });
+    document.getElementById('day-events-title').textContent = label;
+    document.getElementById('day-events-list').innerHTML = dots.map(function (d) {
+      return '<div class="history-card card" style="margin-bottom:8px" onclick="closeDayEventsOverlay();openEventDetail(\'' + esc(d.event_id) + '\')">' +
+        esc(d.name) +
+      '</div>';
+    }).join('');
+    document.getElementById('day-events-overlay').style.display = 'flex';
+  }
+
+  function closeDayEventsOverlay() {
+    document.getElementById('day-events-overlay').style.display = 'none';
   }
 
   // ── Actions ───────────────────────────────────────────────────────────────
@@ -895,6 +983,8 @@
   // Close overlay on background click
   document.addEventListener('click', function (e) {
     if (e.target.id === 'decline-overlay') closeDeclineOverlay();
+    if (e.target.id === 'event-detail-overlay') closeEventDetail();
+    if (e.target.id === 'day-events-overlay') closeDayEventsOverlay();
   });
 
   // Enter key support in login

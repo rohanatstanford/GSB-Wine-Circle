@@ -75,19 +75,24 @@ async function sendViaGmailApi({ to, subject, body }) {
  */
 async function sendEmail(opts) {
   const { to, subject, body, type, eventId, signupId, eventName } = opts;
-  let status = 'sent';
+  let status;
   let errorMsg = null;
 
   if (oauth2Client) {
     try {
       await sendViaGmailApi({ to, subject, body });
+      status = 'sent';
     } catch (err) {
       status = 'error';
       errorMsg = err.message;
       console.error('Gmail API send error:', err.message);
     }
   } else {
-    // Dev fallback: log to console
+    // Dev fallback: log to console. This is NOT a successful send — record
+    // it as such, or a misconfigured GMAIL_* env var in production would
+    // silently no-op while email_log still claimed "sent".
+    status = 'skipped';
+    errorMsg = 'Gmail API credentials not configured — logged to console only';
     console.log('=== EMAIL (Gmail API credentials not configured) ===');
     console.log(`To: ${to}`);
     console.log(`Subject: ${subject}`);

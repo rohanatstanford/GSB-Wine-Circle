@@ -304,6 +304,43 @@ router.get('/:id/signups', requireAdmin, async (req, res) => {
   }
 });
 
+// GET /api/events/:id/attendees.csv — admin: download CSV of Attended members
+function csvEscape(v) {
+  const s = String(v == null ? '' : v);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+router.get('/:id/attendees.csv', requireAdmin, async (req, res) => {
+  try {
+    const { rows: evRows } = await db.query('SELECT name FROM events WHERE event_id = $1', [req.params.id]);
+    if (!evRows.length) return res.status(404).json({ error: 'Event not found' });
+
+    const { rows } = await db.query(
+      `SELECT m.full_name, m.email, m.affiliation, s.attended_marked_at
+       FROM signups s JOIN members m ON m.member_id = s.member_id
+       WHERE s.event_id = $1 AND s.status = 'Attended'
+       ORDER BY m.full_name`,
+      [req.params.id]
+    );
+
+    const lines = [['Name', 'Email', 'Affiliation', 'Attended At'].join(',')];
+    rows.forEach(r => {
+      lines.push([
+        r.full_name, r.email, r.affiliation,
+        r.attended_marked_at ? new Date(r.attended_marked_at).toISOString() : '',
+      ].map(csvEscape).join(','));
+    });
+
+    const safeName = (evRows[0].name || 'event').replace(/[^a-z0-9]+/gi, '_').toLowerCase();
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}-attendees.csv"`);
+    return res.send(lines.join('\r\n'));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
+
 // Helper: set event status
 async function setEventStatus(req, res, newStatus) {
   const { id } = req.params;

@@ -163,6 +163,7 @@
     .badge-admin      { background: #e8daef;   color: #6c3483; }
     .badge-sent       { background: #d5f5e3;   color: #1a6e3a; }
     .badge-error      { background: #f9ebea;   color: #922b21; }
+    .badge-skipped    { background: #fef9e7;   color: #7d6608; }
     .badge-charge     { background: #f9ebea;   color: #922b21; }
     .badge-payment    { background: #d5f5e3;   color: #1a6e3a; }
     .badge-waiver     { background: #fef9e7;   color: #7d6608; }
@@ -407,6 +408,7 @@
           <button class="btn-success   btn-sm" id="btn-finalize"       onclick="eventAction('finalize')">Finalize Event</button>
           <button class="btn-danger    btn-sm" id="btn-cancel-event"   onclick="eventAction('cancel')">Cancel Event</button>
           <button class="btn-secondary btn-sm"                         onclick="openEditEvent()">Edit Details</button>
+          <button class="btn-secondary btn-sm"                         onclick="downloadAttendeesCsv()">Export Attendees (CSV)</button>
         </div>
 
         <!-- Toggle settings -->
@@ -1055,6 +1057,7 @@ async function loadEventSignups(eventId) {
         <td>
           <div class="td-actions">
             ${s.status === 'Waitlist' ? `<button class="btn-secondary btn-sm" onclick="promoteSignup('${s.signup_id}')">Promote</button>` : ''}
+            ${s.status === 'Invited' ? `<button class="btn-secondary btn-sm" onclick="demoteSignup('${s.signup_id}')">Remove from Invited</button>` : ''}
           </div>
         </td>
       </tr>
@@ -1111,6 +1114,18 @@ async function promoteSignup(signupId) {
   }
 }
 
+async function demoteSignup(signupId) {
+  confirm('Remove from Invited', 'Move this member back to the waitlist? If auto-promotion is on for this event, the next waitlisted member will be invited to fill the spot.', 'btn-danger', async () => {
+    try {
+      const res = await api('POST', `/signups/${signupId}/demote`);
+      toast('Member moved back to waitlist' + (res.promoted ? ' — next waitlisted member promoted' : ''), 'success');
+      await loadEventSignups(currentEventId);
+    } catch (e) {
+      toast('Error: ' + e.message, 'error');
+    }
+  });
+}
+
 async function eventAction(action) {
   const ev = currentEventId;
   const confirmMap = {
@@ -1163,6 +1178,31 @@ async function eventAction(action) {
       toast('Error: ' + e.message, 'error');
     }
   });
+}
+
+async function downloadAttendeesCsv() {
+  try {
+    const resp = await fetch(`/api/events/${currentEventId}/attendees.csv`, {
+      headers: sessionToken ? { 'x-session-token': sessionToken } : {},
+    });
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+      throw new Error(data.error || `HTTP ${resp.status}`);
+    }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const name = (document.getElementById('event-detail-name').textContent || 'event')
+      .replace(/[^a-z0-9]+/gi, '_').toLowerCase();
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${name}-attendees.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
+  }
 }
 
 async function toggleEventSetting(field, value) {
