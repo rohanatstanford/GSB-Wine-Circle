@@ -14,6 +14,9 @@ if (GMAIL_USER && GMAIL_APP_PASSWORD) {
     connectionTimeout: 10000,
     greetingTimeout: 10000,
     socketTimeout: 10000,
+    // Some hosts (e.g. Render) resolve smtp.gmail.com's AAAA record but have
+    // no outbound IPv6 route, which fails with ENETUNREACH. Force IPv4.
+    family: 4,
   });
 }
 
