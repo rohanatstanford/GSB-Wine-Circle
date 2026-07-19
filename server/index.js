@@ -5,7 +5,7 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const cookieParser = require('cookie-parser');
-const rateLimit = require('express-rate-limit');
+const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const cron = require('node-cron');
 
 const { sessionMiddleware } = require('./middleware/auth');
@@ -43,9 +43,22 @@ app.use(express.json());
 app.use(cookieParser());
 
 // ── Rate limiting ─────────────────────────────────────────────────────────────
+// Members on the same campus WiFi/VPN commonly share one public IP after NAT,
+// so IP-based keying alone would let one busy network egress point throttle
+// everyone behind it. Key by session token when one is present (ties the
+// budget to the actual person, not their network), falling back to IP only
+// for the pre-login auth endpoints where no token exists yet.
+function keyByTokenOrIp(req) {
+  const token = req.headers['x-session-token'] || (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '');
+  return token || ipKeyGenerator(req.ip);
+}
+
+// Strict: only the actual abuse surface (guessing a 6-digit code / spamming
+// send-code). GET /api/auth/me and /logout are cheap, frequent, session-
+// bearing calls fired on every page load and must NOT share this budget.
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 20,
+  max: 30,
   message: { error: 'Too many requests, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -53,13 +66,15 @@ const authLimiter = rateLimit({
 
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 300,
+  max: 600,
+  keyGenerator: keyByTokenOrIp,
   message: { error: 'Too many requests, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
 });
 
-app.use('/api/auth', authLimiter);
+app.use('/api/auth/send-code', authLimiter);
+app.use('/api/auth/verify-code', authLimiter);
 app.use('/api', apiLimiter);
 
 // ── Session resolution ────────────────────────────────────────────────────────
