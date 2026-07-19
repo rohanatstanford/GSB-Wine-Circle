@@ -25,16 +25,27 @@ async function recomputeBalance(client, memberId) {
  * Promote the next Waitlist signup (by lottery_rank) for an event to Invited,
  * issuing a fresh decline token. Returns the promoted signup row, or null if
  * the waitlist is empty. Caller is responsible for sending the promotion email.
+ *
+ * @param {string} [excludeSignupId] - skip this signup even if it's on the
+ *   Waitlist. Needed when a signup was just moved TO Waitlist in the same
+ *   transaction (e.g. admin demoting an Invited member) - otherwise a lone
+ *   waitlister would immediately "promote" themselves right back.
  */
-async function promoteNextWaitlist(client, eventId) {
+async function promoteNextWaitlist(client, eventId, excludeSignupId) {
+  const params = [eventId];
+  let excludeClause = '';
+  if (excludeSignupId) {
+    params.push(excludeSignupId);
+    excludeClause = `AND s2.signup_id != $${params.length}`;
+  }
   const { rows: waitlist } = await client.query(
     `SELECT s2.*, m.email AS member_email, m.full_name AS member_name
      FROM signups s2
      JOIN members m ON m.member_id = s2.member_id
-     WHERE s2.event_id = $1 AND s2.status = 'Waitlist'
+     WHERE s2.event_id = $1 AND s2.status = 'Waitlist' ${excludeClause}
      ORDER BY s2.lottery_rank ASC
      LIMIT 1 FOR UPDATE`,
-    [eventId]
+    params
   );
   if (!waitlist.length) return null;
   const next = waitlist[0];

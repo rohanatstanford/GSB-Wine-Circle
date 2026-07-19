@@ -425,7 +425,9 @@ router.post('/:id/demote', requireAdmin, async (req, res) => {
 
     let promoted = null;
     if (s.auto_invite_enabled) {
-      promoted = await promoteNextWaitlist(client, s.event_id);
+      // Exclude the signup we just moved to Waitlist - otherwise a lone
+      // waitlister would immediately re-promote themselves right back.
+      promoted = await promoteNextWaitlist(client, s.event_id, req.params.id);
     }
 
     await client.query('COMMIT');
