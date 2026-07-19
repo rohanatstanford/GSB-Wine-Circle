@@ -19,21 +19,31 @@ if (GMAIL_CLIENT_ID && GMAIL_CLIENT_SECRET && GMAIL_REFRESH_TOKEN) {
   oauth2Client.setCredentials({ refresh_token: GMAIL_REFRESH_TOKEN });
 }
 
+// RFC 2822 headers are ASCII-only; non-ASCII values (e.g. an em dash in the
+// subject) must be RFC 2047 encoded-words, or mail clients mis-decode them
+// using the wrong charset (the classic "Ã¢Â€Â”" mojibake for "—").
+function encodeHeader(str) {
+  if (/^[\x00-\x7F]*$/.test(str)) return str;
+  return `=?UTF-8?B?${Buffer.from(str, 'utf8').toString('base64')}?=`;
+}
+
 /**
  * Build a minimal RFC 2822 message string and base64url-encode it for Gmail's API.
  */
 function buildRawMessage({ from, to, subject, text }) {
+  const bodyB64 = Buffer.from(text, 'utf8').toString('base64').replace(/(.{76})/g, '$1\r\n');
   const lines = [
     `From: ${from}`,
     `To: ${to}`,
-    `Subject: ${subject}`,
+    `Subject: ${encodeHeader(subject)}`,
     'MIME-Version: 1.0',
     'Content-Type: text/plain; charset="UTF-8"',
+    'Content-Transfer-Encoding: base64',
     '',
-    text,
+    bodyB64,
   ];
   const raw = lines.join('\r\n');
-  return Buffer.from(raw).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return Buffer.from(raw, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 async function sendViaGmailApi({ to, subject, body }) {
