@@ -1,23 +1,55 @@
-// Email service — sends via Gmail SMTP (Nodemailer) or logs to console as fallback.
+// Email service — sends via the Gmail API over HTTPS (OAuth2) or logs to console as fallback.
+//
+// This deliberately does NOT use SMTP: many PaaS hosts (Render's free tier
+// included) block outbound SMTP ports entirely for anti-abuse reasons, which
+// makes Gmail SMTP unusable there regardless of credentials. The Gmail REST
+// API is a plain HTTPS call, which is never port-blocked.
 const db = require('../db');
-const nodemailer = require('nodemailer');
+const { OAuth2Client } = require('google-auth-library');
 
 const GMAIL_USER = process.env.GMAIL_USER || '';
-const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD || '';
+const GMAIL_CLIENT_ID = process.env.GMAIL_CLIENT_ID || '';
+const GMAIL_CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET || '';
+const GMAIL_REFRESH_TOKEN = process.env.GMAIL_REFRESH_TOKEN || '';
 const EMAIL_FROM = process.env.EMAIL_FROM || GMAIL_USER;
 
-let transporter = null;
-if (GMAIL_USER && GMAIL_APP_PASSWORD) {
-  transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
-    connectionTimeout: 25000,
-    greetingTimeout: 25000,
-    socketTimeout: 25000,
-    // Some hosts (e.g. Render) resolve smtp.gmail.com's AAAA record but have
-    // no outbound IPv6 route, which fails with ENETUNREACH. Force IPv4.
-    family: 4,
+let oauth2Client = null;
+if (GMAIL_CLIENT_ID && GMAIL_CLIENT_SECRET && GMAIL_REFRESH_TOKEN) {
+  oauth2Client = new OAuth2Client(GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET);
+  oauth2Client.setCredentials({ refresh_token: GMAIL_REFRESH_TOKEN });
+}
+
+/**
+ * Build a minimal RFC 2822 message string and base64url-encode it for Gmail's API.
+ */
+function buildRawMessage({ from, to, subject, text }) {
+  const lines = [
+    `From: ${from}`,
+    `To: ${to}`,
+    `Subject: ${subject}`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset="UTF-8"',
+    '',
+    text,
+  ];
+  const raw = lines.join('\r\n');
+  return Buffer.from(raw).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+async function sendViaGmailApi({ to, subject, body }) {
+  const { token } = await oauth2Client.getAccessToken();
+  if (!token) throw new Error('Failed to obtain a Gmail access token — check GMAIL_REFRESH_TOKEN is still valid.');
+
+  const raw = buildRawMessage({ from: EMAIL_FROM, to, subject, text: body });
+  const resp = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ raw }),
   });
+  if (!resp.ok) {
+    const errText = await resp.text();
+    throw new Error(`Gmail API error ${resp.status}: ${errText}`);
+  }
 }
 
 /**
@@ -36,21 +68,21 @@ async function sendEmail(opts) {
   let status = 'sent';
   let errorMsg = null;
 
-  if (transporter) {
+  if (oauth2Client) {
     try {
-      await transporter.sendMail({ from: EMAIL_FROM, to, subject, text: body });
+      await sendViaGmailApi({ to, subject, body });
     } catch (err) {
       status = 'error';
       errorMsg = err.message;
-      console.error('Gmail send error:', err.message);
+      console.error('Gmail API send error:', err.message);
     }
   } else {
     // Dev fallback: log to console
-    console.log('=== EMAIL (GMAIL_USER / GMAIL_APP_PASSWORD not configured) ===');
+    console.log('=== EMAIL (Gmail API credentials not configured) ===');
     console.log(`To: ${to}`);
     console.log(`Subject: ${subject}`);
     console.log(`Body:\n${body}`);
-    console.log('================================================================');
+    console.log('======================================================');
   }
 
   // Always log the attempt.
