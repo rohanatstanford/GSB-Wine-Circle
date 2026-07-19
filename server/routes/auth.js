@@ -58,7 +58,9 @@ router.post('/send-code', async (req, res) => {
       [email, codeHash, expiresAt]
     );
 
-    await emailMagicLink(member, code, ttlMin);
+    // Fire-and-forget: the code is already persisted, so a slow/unreachable
+    // email provider must never hang the login request itself.
+    emailMagicLink(member, code, ttlMin).catch(e => console.error('Magic link email error:', e.message));
 
     return res.json({ ok: true });
   } catch (err) {
