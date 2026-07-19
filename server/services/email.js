@@ -11,9 +11,9 @@ if (GMAIL_USER && GMAIL_APP_PASSWORD) {
   transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
-    connectionTimeout: 10000,
-    greetingTimeout: 10000,
-    socketTimeout: 10000,
+    connectionTimeout: 25000,
+    greetingTimeout: 25000,
+    socketTimeout: 25000,
     // Some hosts (e.g. Render) resolve smtp.gmail.com's AAAA record but have
     // no outbound IPv6 route, which fails with ENETUNREACH. Force IPv4.
     family: 4,
