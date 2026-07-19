@@ -465,10 +465,17 @@
   }
 
   // Shared status-pill rendering for a member's signup_status on an event.
+  // Covers every status the signup lifecycle can reach, not just the
+  // pre-outcome ones — otherwise a Flaked/Attended/Dropped/Lost signup
+  // silently renders as "Not signed up", which is actively misleading.
   function signupStatusPill(ss, showNotSignedUp) {
     if (ss === 'Pending')  return '<span class="pill signed-up">Signed up</span>';
     if (ss === 'Invited')  return '<span class="pill invited">Invited</span>';
     if (ss === 'Waitlist') return '<span class="pill waitlist">Waitlisted</span>';
+    if (ss === 'Attended') return '<span class="pill attended">Attended</span>';
+    if (ss === 'Flaked')   return '<span class="pill flaked">Flaked</span>';
+    if (ss === 'Dropped')  return '<span class="pill declined">Declined</span>';
+    if (ss === 'Lost')     return '<span class="pill lost">Not selected</span>';
     return showNotSignedUp ? '<span class="pill not-signed-up">Not signed up</span>' : '';
   }
 
