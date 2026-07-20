@@ -681,6 +681,23 @@
       <!-- ── Email Log Page ──────────────────────────────────────────────── -->
       <div id="page-email-log" class="page">
         <div class="page-header"><h2>Email Log</h2></div>
+        <div class="toolbar">
+          <input type="search" id="email-log-to-filter" placeholder="Filter by To (email)…" oninput="onEmailLogToFilterInput()" />
+          <select id="email-log-type-filter" onchange="applyEmailLogFilters()">
+            <option value="">All Types</option>
+            <option value="MagicLink">MagicLink</option>
+            <option value="Invitation">Invitation</option>
+            <option value="LotteryLost">LotteryLost</option>
+            <option value="WaitlistPromotion">WaitlistPromotion</option>
+            <option value="FlakeNotice">FlakeNotice</option>
+            <option value="AttendanceCorrected">AttendanceCorrected</option>
+            <option value="FeePaidConfirm">FeePaidConfirm</option>
+          </select>
+          <select id="email-log-event-filter" onchange="applyEmailLogFilters()">
+            <option value="">All Events</option>
+          </select>
+          <button class="btn-secondary btn-sm" onclick="clearEmailLogFilters()">Clear Filters</button>
+        </div>
         <div class="card table-wrap">
           <table>
             <thead>
@@ -2006,16 +2023,56 @@ async function loadAudit() {
 }
 
 /* ── Email Log ───────────────────────────────────────────────────────────── */
+let emailLogToFilterTimer = null;
+
+function onEmailLogToFilterInput() {
+  clearTimeout(emailLogToFilterTimer);
+  emailLogToFilterTimer = setTimeout(applyEmailLogFilters, 300);
+}
+
+function applyEmailLogFilters() {
+  emailLogPage = 1;
+  loadEmailLog();
+}
+
+function clearEmailLogFilters() {
+  document.getElementById('email-log-to-filter').value = '';
+  document.getElementById('email-log-type-filter').value = '';
+  document.getElementById('email-log-event-filter').value = '';
+  applyEmailLogFilters();
+}
+
+async function populateEmailLogEventFilter() {
+  const sel = document.getElementById('email-log-event-filter');
+  if (sel.dataset.populated) return;
+  try {
+    const res = await api('GET', '/events/all');
+    const events = res.events || res;
+    sel.innerHTML = '<option value="">All Events</option>' +
+      events.map(e => `<option value="${esc(e.event_id)}">${esc(e.name)}</option>`).join('');
+    sel.dataset.populated = '1';
+  } catch (e) { /* leave as All Events if this fails */ }
+}
+
 async function loadEmailLog() {
   const tbody = document.getElementById('email-log-tbody');
   tbody.innerHTML = '<tr class="loading-row"><td colspan="6"><span class="spinner"></span> Loading…</td></tr>';
+  populateEmailLogEventFilter();
   try {
-    const res = await api('GET', `/email/log?limit=200`);
+    const toFilter = document.getElementById('email-log-to-filter').value.trim();
+    const typeFilter = document.getElementById('email-log-type-filter').value;
+    const eventFilter = document.getElementById('email-log-event-filter').value;
+    const params = new URLSearchParams({ limit: '200' });
+    if (toFilter) params.set('to_email', toFilter);
+    if (typeFilter) params.set('type', typeFilter);
+    if (eventFilter) params.set('event_id', eventFilter);
+    const res = await api('GET', `/email/log?${params.toString()}`);
     const all = res.log || (Array.isArray(res) ? res : []);
     const start = (emailLogPage - 1) * PAGE_SIZE;
     const entries = all.slice(start, start + PAGE_SIZE);
     if (!entries.length) {
-      tbody.innerHTML = '<tr class="loading-row"><td colspan="6" style="color:var(--muted)">No emails sent yet.</td></tr>';
+      const msg = (toFilter || typeFilter || eventFilter) ? 'No emails match these filters.' : 'No emails sent yet.';
+      tbody.innerHTML = `<tr class="loading-row"><td colspan="6" style="color:var(--muted)">${msg}</td></tr>`;
       renderPagination('email-log-pagination', emailLogPage, 0);
       return;
     }

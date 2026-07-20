@@ -58,12 +58,17 @@ router.post('/send-lottery-lost', requireAdmin, async (req, res) => {
 });
 
 // GET /api/email/log — admin: view email log
+// Optional filters: event_id (exact), type (exact), to_email (substring, case-insensitive)
 router.get('/log', requireAdmin, async (req, res) => {
   try {
-    const { event_id, limit = 100 } = req.query;
+    const { event_id, type, to_email, limit = 100 } = req.query;
     let q = 'SELECT * FROM email_log';
     const params = [];
-    if (event_id) { params.push(event_id); q += ` WHERE event_id = $${params.length}`; }
+    const conditions = [];
+    if (event_id) { params.push(event_id); conditions.push(`event_id = $${params.length}`); }
+    if (type) { params.push(type); conditions.push(`type = $${params.length}`); }
+    if (to_email) { params.push(`%${to_email}%`); conditions.push(`to_email ILIKE $${params.length}`); }
+    if (conditions.length) q += ' WHERE ' + conditions.join(' AND ');
     q += ` ORDER BY sent_at DESC LIMIT $${params.length + 1}`;
     params.push(parseInt(limit) || 100);
     const { rows } = await db.query(q, params);
