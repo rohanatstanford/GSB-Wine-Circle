@@ -336,6 +336,9 @@
         <div class="nav-item" data-page="fees" onclick="nav('fees')">
           <span class="nav-icon">💰</span> Fee Ledger
         </div>
+        <div class="nav-item" data-page="analytics" id="nav-analytics" style="display:none;" onclick="nav('analytics')">
+          <span class="nav-icon">📊</span> Analytics
+        </div>
         <hr class="nav-divider" />
         <div class="nav-item" data-page="audit" onclick="nav('audit')">
           <span class="nav-icon">📋</span> Audit Log
@@ -435,6 +438,13 @@
               <span class="toggle-slider"></span>
             </label>
           </div>
+          <div class="toggle-row">
+            <label for="toggle-dollar-value">Show dollar value to members</label>
+            <label class="toggle-switch">
+              <input type="checkbox" id="toggle-dollar-value" onchange="toggleEventSetting('show_dollar_value', this.checked)" />
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
         </div>
 
         <!-- Tabs: Signups / Attendance -->
@@ -445,6 +455,9 @@
 
         <div id="tab-signups" class="tab-panel active">
           <div class="stat-grid" id="event-signup-stats"></div>
+          <div style="display:flex; justify-content:flex-end; margin-bottom:10px;">
+            <button class="btn-secondary btn-sm" onclick="loadEventSignups(currentEventId)">↻ Refresh</button>
+          </div>
           <div class="card table-wrap">
             <table>
               <thead>
@@ -576,6 +589,30 @@
             </table>
           </div>
           <div class="pagination" id="ledger-pagination"></div>
+        </div>
+      </div>
+
+      <!-- ── Analytics Page (Exec Team only) ─────────────────────────────── -->
+      <div id="page-analytics" class="page">
+        <div class="page-header">
+          <h2>Analytics</h2>
+          <div class="actions">
+            <button class="btn-secondary" onclick="downloadAnalyticsXlsx()">Export to Excel</button>
+          </div>
+        </div>
+        <div class="toolbar">
+          <select id="analytics-year-filter" onchange="loadAnalytics()">
+            <option value="">All Years</option>
+          </select>
+        </div>
+        <div class="card table-wrap" style="overflow:auto; max-height:70vh;">
+          <table id="analytics-table" style="font-size:12px;">
+            <thead id="analytics-thead"></thead>
+            <tbody id="analytics-tbody">
+              <tr class="loading-row"><td><span class="spinner"></span> Loading…</td></tr>
+            </tbody>
+            <tfoot id="analytics-tfoot"></tfoot>
+          </table>
         </div>
       </div>
 
@@ -813,6 +850,10 @@
         <label for="ev-location">Location</label>
         <input type="text" id="ev-location" placeholder="123 Main St, City" />
       </div>
+      <div class="form-group">
+        <label for="ev-dollar-value">Dollar Value (per member, optional)</label>
+        <input type="number" id="ev-dollar-value" min="0" step="0.01" placeholder="e.g. 50" />
+      </div>
       <div class="form-row">
         <div class="form-group">
           <label for="ev-signup-opens">Signup Opens</label>
@@ -823,6 +864,10 @@
           <input type="datetime-local" id="ev-signup-closes" />
         </div>
       </div>
+      <p class="text-muted" style="font-size:12px; margin-top:-8px; margin-bottom:16px;">
+        Set a time and signups automatically open/close then. Leave either blank to require the
+        manual Open/Close Signups button for that side instead.
+      </p>
       <div class="form-group">
         <label for="ev-description">Description</label>
         <textarea id="ev-description" rows="8" placeholder="Event details for members..."></textarea>
@@ -922,6 +967,7 @@ function showApp() {
   document.getElementById('screen-login').style.display = 'none';
   document.getElementById('app').classList.add('ready');
   document.getElementById('header-user').textContent = currentMember.full_name || currentMember.email;
+  document.getElementById('nav-analytics').style.display = currentMember.is_exec_team ? '' : 'none';
   api('GET', '/settings').then(res => {
     (res.settings || res || []).forEach(s => { currentSettings[s.key] = s.value; });
   }).catch(() => {});
@@ -1008,6 +1054,7 @@ function nav(page) {
   if (page === 'audit')      { auditPage = 1; loadAudit(); }
   if (page === 'email-log')  { emailLogPage = 1; loadEmailLog(); }
   if (page === 'settings')   loadSettings();
+  if (page === 'analytics')  loadAnalytics();
 }
 
 /* ── Tabs ────────────────────────────────────────────────────────────────── */
@@ -1083,6 +1130,7 @@ async function openEventDetail(eventId) {
       <div class="meta-item"><div class="meta-label">Date</div><div class="meta-value">${ev.event_date ? fmtDate(ev.event_date) : '—'}</div></div>
       <div class="meta-item"><div class="meta-label">Location</div><div class="meta-value">${esc(ev.location) || '—'}</div></div>
       <div class="meta-item"><div class="meta-label">Capacity</div><div class="meta-value">${ev.capacity}</div></div>
+      <div class="meta-item"><div class="meta-label">Dollar Value</div><div class="meta-value">${ev.dollar_value != null ? '$' + parseFloat(ev.dollar_value).toFixed(2) : '—'}</div></div>
       <div class="meta-item"><div class="meta-label">Signup Opens</div><div class="meta-value">${ev.signup_opens_at ? fmtDate(ev.signup_opens_at) : '—'}</div></div>
       <div class="meta-item"><div class="meta-label">Signup Closes</div><div class="meta-value">${ev.signup_closes_at ? fmtDate(ev.signup_closes_at) : '—'}</div></div>
       <div class="meta-item"><div class="meta-label">Created By</div><div class="meta-value">${esc(ev.created_by) || '—'}</div></div>
@@ -1090,6 +1138,7 @@ async function openEventDetail(eventId) {
 
     document.getElementById('toggle-auto-invite').checked = !!ev.auto_invite_enabled;
     document.getElementById('toggle-lost-emails').checked = !!ev.send_lottery_lost_emails;
+    document.getElementById('toggle-dollar-value').checked = !!ev.show_dollar_value;
     document.getElementById('btn-delete-event').style.display = currentMember?.is_exec_team ? '' : 'none';
 
     await loadEventSignups(eventId);
@@ -1370,7 +1419,7 @@ function openCreateEvent() {
   document.getElementById('modal-event-title').textContent = 'New Event';
   document.getElementById('modal-event-submit').textContent = 'Create Event';
   clearAlert('modal-event-alert');
-  ['ev-name','ev-location','ev-description','ev-host-notes'].forEach(id => document.getElementById(id).value = '');
+  ['ev-name','ev-location','ev-description','ev-host-notes','ev-dollar-value'].forEach(id => document.getElementById(id).value = '');
   ['ev-date','ev-signup-opens','ev-signup-closes'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('ev-capacity').value = '60';
   openModal('modal-event');
@@ -1390,6 +1439,7 @@ async function openEditEventById(eventId, e) {
     document.getElementById('ev-capacity').value = ev.capacity || 60;
     document.getElementById('ev-description').value = ev.description || '';
     document.getElementById('ev-host-notes').value = ev.host_notes || '';
+    document.getElementById('ev-dollar-value').value = ev.dollar_value ?? '';
     document.getElementById('ev-date').value = ev.event_date ? toLocalDateTime(ev.event_date) : '';
     document.getElementById('ev-signup-opens').value = ev.signup_opens_at ? toLocalDateTime(ev.signup_opens_at) : '';
     document.getElementById('ev-signup-closes').value = ev.signup_closes_at ? toLocalDateTime(ev.signup_closes_at) : '';
@@ -1415,6 +1465,7 @@ async function saveEvent() {
     event_date:      document.getElementById('ev-date').value || null,
     signup_opens_at: document.getElementById('ev-signup-opens').value || null,
     signup_closes_at:document.getElementById('ev-signup-closes').value || null,
+    dollar_value:    document.getElementById('ev-dollar-value').value === '' ? null : parseFloat(document.getElementById('ev-dollar-value').value),
   };
   const btn = document.getElementById('modal-event-submit');
   btn.disabled = true;
@@ -1502,8 +1553,8 @@ function renderMembers() {
       <td>
         <div class="td-actions">
           <button class="btn-secondary btn-sm" onclick="openEditMember('${m.member_id}')">Edit</button>
-          ${m.fee_balance > 0 && currentMember?.is_exec_team ? `<button class="btn-success btn-sm" onclick="openPayment('${m.member_id}', '${esc(m.full_name)}', ${m.fee_balance})">Pay</button>` : ''}
-          ${m.status !== 'Inactive' ? `<button class="btn-danger btn-sm" onclick="deactivateMember('${m.member_id}', '${esc(m.full_name)}')">Deactivate</button>` : ''}
+          ${m.fee_balance > 0 && currentMember?.is_exec_team ? `<button class="btn-success btn-sm" data-member-id="${esc(m.member_id)}" data-full-name="${esc(m.full_name)}" data-balance="${esc(String(m.fee_balance))}" onclick="openPayment(this.dataset.memberId, this.dataset.fullName, parseFloat(this.dataset.balance))">Pay</button>` : ''}
+          ${m.status !== 'Inactive' ? `<button class="btn-danger btn-sm" data-member-id="${esc(m.member_id)}" data-full-name="${esc(m.full_name)}" onclick="deactivateMember(this.dataset.memberId, this.dataset.fullName)">Deactivate</button>` : ''}
         </div>
       </td>
     </tr>
@@ -1805,7 +1856,7 @@ async function loadOutstanding() {
         <td class="fee-balance-positive">$${parseFloat(m.fee_balance).toFixed(2)}</td>
         <td>
           <div class="td-actions">
-            ${currentMember?.is_exec_team ? `<button class="btn-success btn-sm" onclick="openPayment('${m.member_id}', '${esc(m.full_name)}', ${m.fee_balance})">Record Payment</button>` : ''}
+            ${currentMember?.is_exec_team ? `<button class="btn-success btn-sm" data-member-id="${esc(m.member_id)}" data-full-name="${esc(m.full_name)}" data-balance="${esc(String(m.fee_balance))}" onclick="openPayment(this.dataset.memberId, this.dataset.fullName, parseFloat(this.dataset.balance))">Record Payment</button>` : ''}
           </div>
         </td>
       </tr>
@@ -1983,6 +2034,100 @@ async function saveSetting(key) {
   try {
     await api('PATCH', `/settings/${encodeURIComponent(key)}`, { value });
     toast('Setting saved', 'success');
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
+  }
+}
+
+/* ── Analytics (Exec Team only) ─────────────────────────────────────────── */
+let analyticsFixedCols = 3; // Member, Email, School Year
+
+async function loadAnalytics() {
+  const thead = document.getElementById('analytics-thead');
+  const tbody = document.getElementById('analytics-tbody');
+  const tfoot = document.getElementById('analytics-tfoot');
+  tbody.innerHTML = '<tr class="loading-row"><td><span class="spinner"></span> Loading…</td></tr>';
+  thead.innerHTML = '';
+  tfoot.innerHTML = '';
+
+  const year = document.getElementById('analytics-year-filter').value;
+  try {
+    const res = await api('GET', `/analytics/matrix${year ? '?school_year=' + encodeURIComponent(year) : ''}`);
+    const { members, events, cells, totals } = res;
+
+    // Populate the year filter from whatever school years actually exist,
+    // without clobbering the admin's current selection.
+    const yearSel = document.getElementById('analytics-year-filter');
+    if (!yearSel.dataset.populated) {
+      const allYears = [...new Set(members.map(m => m.school_year).filter(Boolean))].sort().reverse();
+      yearSel.innerHTML = '<option value="">All Years</option>' + allYears.map(y => `<option value="${esc(y)}">${esc(y)}</option>`).join('');
+      yearSel.value = year;
+      yearSel.dataset.populated = '1';
+    }
+
+    const colCount = analyticsFixedCols + events.length;
+    if (!members.length || !events.length) {
+      tbody.innerHTML = `<tr class="loading-row"><td colspan="${colCount}" style="color:var(--muted)">No data yet.</td></tr>`;
+      return;
+    }
+
+    thead.innerHTML = `<tr><th>Member</th><th>Email</th><th>Year</th>${
+      events.map(e => `<th style="white-space:nowrap;">${esc(e.name)}</th>`).join('')
+    }</tr>`;
+
+    tbody.innerHTML = members.map(m => `
+      <tr>
+        <td style="font-weight:600; white-space:nowrap;">${esc(m.full_name)}</td>
+        <td class="monospace">${esc(m.email)}</td>
+        <td>${esc(m.school_year) || '—'}</td>
+        ${events.map(e => {
+          const status = cells[m.member_id]?.[e.event_id];
+          return `<td>${status ? `<span class="badge badge-${status.toLowerCase()}">${esc(status)}</span>` : ''}</td>`;
+        }).join('')}
+      </tr>
+    `).join('');
+
+    const pct = v => Math.round(v * 100) + '%';
+    const summaryRow = (label, fn) => `
+      <tr>
+        <td colspan="3" style="font-weight:700;">${esc(label)}</td>
+        ${events.map(e => `<td style="font-weight:700;">${fn(totals[e.event_id])}</td>`).join('')}
+      </tr>`;
+    tfoot.innerHTML =
+      summaryRow('Applied', t => t.applied) +
+      summaryRow('Dropped', t => t.dropped) +
+      summaryRow('Flaked', t => t.flaked) +
+      summaryRow('Attended', t => t.attended) +
+      summaryRow('% Attended', t => pct(t.pctAttended)) +
+      summaryRow('# Given a Chance', t => t.givenChance) +
+      summaryRow('% Given a Chance', t => pct(t.pctGivenChance)) +
+      summaryRow('% Attended of Given a Chance', t => pct(t.pctAttendedOfGivenChance)) +
+      summaryRow('Dollar Value', t => t.dollarValue != null ? '$' + t.dollarValue.toFixed(2) : '—') +
+      summaryRow('Total Dollar Value', t => '$' + t.totalDollarValue.toFixed(2));
+  } catch (e) {
+    tbody.innerHTML = `<tr class="loading-row"><td class="text-danger">Error: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+async function downloadAnalyticsXlsx() {
+  try {
+    const year = document.getElementById('analytics-year-filter').value;
+    const resp = await fetch(`/api/analytics/export.xlsx${year ? '?school_year=' + encodeURIComponent(year) : ''}`, {
+      headers: sessionToken ? { 'x-session-token': sessionToken } : {},
+    });
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+      throw new Error(data.error || `HTTP ${resp.status}`);
+    }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'wine-circle-analytics.xlsx';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   } catch (e) {
     toast('Error: ' + e.message, 'error');
   }

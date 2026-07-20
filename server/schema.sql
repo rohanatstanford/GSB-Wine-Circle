@@ -47,20 +47,24 @@ CREATE TABLE IF NOT EXISTS events (
   signup_opens_at           TIMESTAMPTZ,
   signup_closes_at          TIMESTAMPTZ,
   lottery_run_at            TIMESTAMPTZ,
-  auto_invite_enabled       BOOLEAN NOT NULL DEFAULT TRUE,
-  send_lottery_lost_emails  BOOLEAN NOT NULL DEFAULT TRUE,
+  auto_invite_enabled       BOOLEAN NOT NULL DEFAULT FALSE,
+  send_lottery_lost_emails  BOOLEAN NOT NULL DEFAULT FALSE,
   status                    TEXT NOT NULL DEFAULT 'Draft', -- Draft | Open | Closed | Lotteried | Completed | Cancelled
   description               TEXT NOT NULL DEFAULT '',
   host_notes                TEXT NOT NULL DEFAULT '',
   created_by                TEXT NOT NULL DEFAULT '',
   finalized_at              TIMESTAMPTZ,
   rolled_back_at            TIMESTAMPTZ, -- set when an admin undoes a finalize; cleared on the next finalize
+  dollar_value              NUMERIC(10,2), -- value of attending, per member; NULL = not set (distinct from $0)
+  show_dollar_value         BOOLEAN NOT NULL DEFAULT FALSE, -- whether members see dollar_value on their portal
   created_at                TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at                TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 ALTER TABLE events ADD COLUMN IF NOT EXISTS finalized_at TIMESTAMPTZ;
 ALTER TABLE events ADD COLUMN IF NOT EXISTS rolled_back_at TIMESTAMPTZ;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS dollar_value NUMERIC(10,2);
+ALTER TABLE events ADD COLUMN IF NOT EXISTS show_dollar_value BOOLEAN NOT NULL DEFAULT FALSE;
 
 CREATE INDEX IF NOT EXISTS idx_events_status     ON events (status);
 CREATE INDEX IF NOT EXISTS idx_events_event_date ON events (event_date);

@@ -50,6 +50,12 @@ router.post('/', requireAuth, async (req, res) => {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Signups are not open for this event.' });
     }
+    // Belt-and-suspenders: the auto-close cron only ticks once a minute, so
+    // without this a request could land in the gap just after the deadline.
+    if (event.signup_closes_at && new Date() > new Date(event.signup_closes_at)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Signups have closed for this event.' });
+    }
 
     // Check not already signed up
     const { rows: existing } = await client.query(

@@ -544,9 +544,13 @@
       var btnLabel = alreadyIn ? 'Already signed up' : (blocked ? 'Pay fee to sign up' : 'Enter lottery');
 
       var meta = [fmtDate(ev.event_date), ev.location].filter(Boolean).join(' · ');
+      var dollarLine = (ev.show_dollar_value && ev.dollar_value != null)
+        ? '<div class="meta">Value: $' + esc(Number(ev.dollar_value).toFixed(2)) + '</div>'
+        : '';
       return '<div class="card">' +
         '<h3>' + esc(ev.name) + statusPill + '</h3>' +
         (meta ? '<div class="meta">' + esc(meta) + '</div>' : '') +
+        dollarLine +
         (ev.description ? '<div class="desc">' + esc(ev.description) + '</div>' : '') +
         '<button class="btn" ' + btnDisabled + ' data-id="' + esc(ev.event_id) + '" onclick="signUp(this)">' +
           esc(btnLabel) +

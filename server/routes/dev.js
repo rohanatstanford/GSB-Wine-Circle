@@ -8,6 +8,12 @@ const { requireAdmin } = require('../middleware/auth');
 const router = express.Router();
 
 async function devGuard(req, res, next) {
+  // Structurally unreachable in production regardless of the settings table
+  // — defense in depth against dev_mode_enabled being flipped on by mistake
+  // (e.g. left on after testing something) on the live deployment.
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(403).json({ error: 'Dev helpers are disabled in production.' });
+  }
   const { rows } = await db.query(`SELECT value FROM settings WHERE key = 'dev_mode_enabled'`);
   const enabled = rows[0]?.value?.toUpperCase() === 'TRUE';
   if (!enabled) {

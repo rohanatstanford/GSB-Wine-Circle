@@ -18,6 +18,7 @@ const emailRoutes = require('./routes/email');
 const settingsRoutes = require('./routes/settings');
 const auditRoutes = require('./routes/audit');
 const devRoutes = require('./routes/dev');
+const analyticsRoutes = require('./routes/analytics');
 
 const path = require('path');
 
@@ -29,13 +30,40 @@ app.set('trust proxy', 1);
 
 // ── Security & parsing middleware ─────────────────────────────────────────────
 app.use(helmet({
-  contentSecurityPolicy: false, // Allow API to be consumed by any frontend
+  // The public HTML pages rely on inline <script>/<style> blocks and inline
+  // onclick="..." handlers throughout, so this can't be a "no unsafe-inline"
+  // policy without a much larger refactor - it's still a real improvement
+  // over no CSP at all, restricting which origins scripts/styles/connections
+  // can come from even though the inline-code allowance stays broad.
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      // script-src-attr governs onclick="..." etc. specifically and does NOT
+      // reliably inherit 'unsafe-inline' from scriptSrc in practice (verified
+      // live - without this, every inline handler in admin.html/index.html is
+      // silently blocked) - must be set explicitly.
+      scriptSrcAttr: ["'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+      fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+      imgSrc: ["'self'", 'data:'],
+      connectSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      frameAncestors: ["'self'"],
+    },
+  },
 }));
 
 app.use(cors({
+  // The frontend is always same-origin (public/*.html served by this same
+  // Express app), so cross-origin access isn't actually needed in normal
+  // use - CORS here only matters for direct third-party API consumption.
+  // Fail closed in production if ALLOWED_ORIGINS was never configured,
+  // rather than reflecting back every origin with credentials allowed.
   origin: process.env.ALLOWED_ORIGINS
     ? process.env.ALLOWED_ORIGINS.split(',')
-    : true, // Allow all origins in dev
+    : process.env.NODE_ENV === 'production' ? false : true, // prod: closed by default; dev: allow all for convenience
   credentials: true,
 }));
 
@@ -101,6 +129,7 @@ app.use('/api/email', emailRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/audit', auditRoutes);
 app.use('/api/dev', devRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 // ── Static frontend ───────────────────────────────────────────────────────────
 const publicDir = path.join(__dirname, '..', 'public');
@@ -142,6 +171,28 @@ cron.schedule('0 3 * * *', async () => {
     console.log('Pruned expired auth codes and sessions');
   } catch (err) {
     console.error('Prune job error:', err.message);
+  }
+});
+
+// Auto-open/close signups based on signup_opens_at/signup_closes_at, for
+// events where those fields are actually set (an empty field always means
+// "requires a manual Open/Close click" and is left alone here). Only ever
+// transitions Draft->Open or Open->Closed - never touches events an admin
+// has moved further along (Lotteried/Completed/Cancelled) or manually Closed.
+cron.schedule('* * * * *', async () => {
+  const db = require('./db');
+  try {
+    const { rowCount: opened } = await db.query(
+      `UPDATE events SET status = 'Open'
+       WHERE status = 'Draft' AND signup_opens_at IS NOT NULL AND signup_opens_at <= NOW()`
+    );
+    const { rowCount: closed } = await db.query(
+      `UPDATE events SET status = 'Closed'
+       WHERE status = 'Open' AND signup_closes_at IS NOT NULL AND signup_closes_at <= NOW()`
+    );
+    if (opened || closed) console.log(`Signup window: auto-opened ${opened}, auto-closed ${closed}`);
+  } catch (err) {
+    console.error('Signup window cron error:', err.message);
   }
 });
 

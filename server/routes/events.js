@@ -78,7 +78,8 @@ router.get('/:id', requireAuth, async (req, res) => {
 router.post('/', requireAdmin, async (req, res) => {
   const {
     name, event_date, location, capacity, description, host_notes,
-    signup_opens_at, signup_closes_at, auto_invite_enabled, send_lottery_lost_emails
+    signup_opens_at, signup_closes_at, auto_invite_enabled, send_lottery_lost_emails,
+    dollar_value, show_dollar_value,
   } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
 
@@ -97,14 +98,16 @@ router.post('/', requireAdmin, async (req, res) => {
       `INSERT INTO events
          (event_id, name, event_date, location, capacity, description, host_notes,
           signup_opens_at, signup_closes_at, auto_invite_enabled, send_lottery_lost_emails,
-          status, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'Draft',$12)
+          dollar_value, show_dollar_value, status, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'Draft',$14)
        RETURNING *`,
       [
         eventId, name, event_date || null, location || '', cap,
         description || '', host_notes || '',
         signup_opens_at || null, signup_closes_at || null,
-        autoInvite, sendLost, req.member.email,
+        autoInvite, sendLost,
+        dollar_value === '' || dollar_value === undefined ? null : parseFloat(dollar_value),
+        !!show_dollar_value, req.member.email,
       ]
     );
     await audit(req.member.email, 'CreateEvent', 'events', eventId, null, { name });
@@ -126,6 +129,7 @@ router.patch('/:id', requireAdmin, async (req, res) => {
     const allowed = [
       'name', 'event_date', 'location', 'capacity', 'description', 'host_notes',
       'signup_opens_at', 'signup_closes_at', 'auto_invite_enabled', 'send_lottery_lost_emails',
+      'dollar_value', 'show_dollar_value',
     ];
     const updates = {};
     allowed.forEach(f => { if (req.body[f] !== undefined) updates[f] = req.body[f]; });
