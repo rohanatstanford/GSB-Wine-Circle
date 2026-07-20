@@ -1556,6 +1556,8 @@ function openAddMember() {
   document.getElementById('m-status').value = 'Active';
   document.getElementById('m-is-admin').checked = false;
   document.getElementById('m-exec-team').checked = false;
+  document.getElementById('m-is-admin').disabled = !currentMember?.is_exec_team;
+  document.getElementById('m-exec-team').disabled = !currentMember?.is_exec_team;
   document.getElementById('m-partner-section').style.display = 'none';
   openModal('modal-member');
 }
@@ -1575,6 +1577,8 @@ function openEditMember(memberId) {
   document.getElementById('m-notes').value = m.notes || '';
   document.getElementById('m-is-admin').checked = !!m.is_admin;
   document.getElementById('m-exec-team').checked = !!m.is_exec_team;
+  document.getElementById('m-is-admin').disabled = !currentMember?.is_exec_team;
+  document.getElementById('m-exec-team').disabled = !currentMember?.is_exec_team;
   document.getElementById('m-partner-section').style.display = '';
   populatePartnerSelect(m);
   openModal('modal-member');

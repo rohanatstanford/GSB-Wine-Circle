@@ -104,6 +104,9 @@ router.post('/', requireAdmin, async (req, res) => {
   if (!email || !full_name) {
     return res.status(400).json({ error: 'email and full_name required' });
   }
+  if ((is_admin || is_exec_team) && !req.member.is_exec_team) {
+    return res.status(403).json({ error: 'Only Exec Team members can grant Admin or Exec Team privileges.' });
+  }
   const normalizedEmail = email.trim().toLowerCase();
 
   try {
@@ -236,6 +239,15 @@ router.patch('/:id', requireAdmin, async (req, res) => {
 
     if (!Object.keys(updates).length) {
       return res.status(400).json({ error: 'No valid fields to update' });
+    }
+
+    // Only Exec Team can grant/revoke Admin or Exec Team privileges. Compare
+    // against the existing value so simply re-sending the unchanged checkbox
+    // state (as the edit form always does) isn't blocked for non-Exec admins.
+    const changingPrivilege = ['is_admin', 'is_exec_team']
+      .some(f => f in updates && !!updates[f] !== !!old[f]);
+    if (changingPrivilege && !req.member.is_exec_team) {
+      return res.status(403).json({ error: 'Only Exec Team members can change Admin or Exec Team privileges.' });
     }
 
     const setClauses = Object.keys(updates).map((k, i) => `${k} = $${i + 2}`).join(', ');
