@@ -21,7 +21,7 @@ router.get('/', requireAuth, async (req, res) => {
   try {
     const { rows } = await db.query(
       `SELECT DISTINCT e.*,
-              s.signup_id, s.status AS signup_status, s.lottery_rank,
+              s.signup_id, s.member_visible_status AS signup_status, s.lottery_rank,
               s.invite_sent_at, s.decline_token, s.declined_at
        FROM events e
        LEFT JOIN signups s ON s.event_id = e.event_id AND s.member_id = $1
@@ -55,12 +55,19 @@ router.get('/:id', requireAuth, async (req, res) => {
     if (!rows.length) return res.status(404).json({ error: 'Event not found' });
     const event = rows[0];
 
-    // Include caller's signup if any
+    // Include caller's signup if any. `status` is the internal/admin-facing
+    // field; members must only ever see `member_visible_status`, aliased here
+    // as `status` so the frontend needs no changes.
     const { rows: signupRows } = await db.query(
       'SELECT * FROM signups WHERE event_id = $1 AND member_id = $2',
       [req.params.id, req.member.member_id]
     );
-    return res.json({ event, mySignup: signupRows[0] || null });
+    let mySignup = signupRows[0] || null;
+    if (mySignup) {
+      mySignup = { ...mySignup, status: mySignup.member_visible_status };
+      delete mySignup.member_visible_status;
+    }
+    return res.json({ event, mySignup });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Internal error' });
@@ -267,13 +274,6 @@ router.post('/:id/finalize', requireAdmin, async (req, res) => {
 
     await client.query('COMMIT');
 
-    // Send flake notices (after commit, best-effort)
-    for (const s of toFlake) {
-      const { emailFlakeNotice } = require('../services/email');
-      emailFlakeNotice({ email: s.member_email, full_name: s.member_name }, event, feeAmount, settings)
-        .catch(e => console.error('Flake notice email error:', e.message));
-    }
-
     await audit(req.member.email, 'FinalizeEvent', 'events', id, null,
       { flaked: toFlake.length, lost: waitlisted.length });
 
@@ -287,7 +287,30 @@ router.post('/:id/finalize', requireAdmin, async (req, res) => {
   }
 });
 
-// GET /api/events/:id/signups — admin: list all signups for an event
+// POST /api/events/:id/push-updates — admin: sync member_visible_status to
+// the current internal status for every signup on this event that has
+// changed since the last push. This is the only way status changes become
+// visible to members — nothing pushes automatically.
+router.post('/:id/push-updates', requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const { rows } = await db.query(
+      `UPDATE signups SET member_visible_status = status
+       WHERE event_id = $1 AND status != member_visible_status
+       RETURNING signup_id`,
+      [id]
+    );
+    await audit(req.member.email, 'PushPortalUpdates', 'events', id, null, { pushed: rows.length });
+    return res.json({ ok: true, pushed: rows.length });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+// GET /api/events/:id/signups — admin: list all signups for an event.
+// Returns both the internal `status` and `member_visible_status` so the
+// admin UI can show whether the latest change has been pushed to the portal.
 router.get('/:id/signups', requireAdmin, async (req, res) => {
   try {
     const { rows } = await db.query(

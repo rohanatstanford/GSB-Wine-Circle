@@ -7,52 +7,6 @@ const emailSvc = require('../services/email');
 
 const router = express.Router();
 
-// POST /api/email/send-invitations
-// Body: { event_id } — sends invitation emails to all 'Invited' signups that haven't been emailed yet.
-router.post('/send-invitations', requireAdmin, async (req, res) => {
-  const { event_id } = req.body;
-  if (!event_id) return res.status(400).json({ error: 'event_id required' });
-
-  try {
-    const { rows: evRows } = await db.query('SELECT * FROM events WHERE event_id = $1', [event_id]);
-    if (!evRows.length) return res.status(404).json({ error: 'Event not found' });
-    const event = evRows[0];
-
-    const { rows: signups } = await db.query(
-      `SELECT s.*, m.email AS member_email, m.full_name AS member_name
-       FROM signups s JOIN members m ON m.member_id = s.member_id
-       WHERE s.event_id = $1 AND s.status = 'Invited' AND s.invite_sent_at IS NULL`,
-      [event_id]
-    );
-
-    const settings = await emailSvc.getSettings(db);
-    let sent = 0;
-    let errors = 0;
-
-    for (const s of signups) {
-      try {
-        await emailSvc.emailInvitation(
-          { email: s.member_email, full_name: s.member_name },
-          event, s.decline_token, settings
-        );
-        await db.query(
-          'UPDATE signups SET invite_sent_at = NOW() WHERE signup_id = $1', [s.signup_id]
-        );
-        sent++;
-      } catch (err) {
-        console.error('Invitation email error for', s.member_email, err.message);
-        errors++;
-      }
-    }
-
-    await audit(req.member.email, 'SendInvitations', 'signups', event_id, null, { sent, errors });
-    return res.json({ ok: true, sent, errors });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Internal error' });
-  }
-});
-
 // POST /api/email/send-lottery-lost
 // Body: { event_id } — sends "you didn't make it" to all Waitlist/Lost signups.
 router.post('/send-lottery-lost', requireAdmin, async (req, res) => {

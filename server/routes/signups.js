@@ -4,8 +4,7 @@ const { v4: uuidv4 } = require('uuid');
 const db = require('../db');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { audit } = require('../services/audit');
-const emailSvc = require('../services/email');
-const { getSettings } = emailSvc;
+const { getSettings } = require('../services/email');
 const { recomputeBalance, promoteNextWaitlist } = require('../services/fees');
 const {
   determineDeclineOutcome,
@@ -92,13 +91,13 @@ router.post('/', requireAuth, async (req, res) => {
 router.get('/invitations', requireAuth, async (req, res) => {
   try {
     const { rows } = await db.query(
-      `SELECT s.signup_id, s.event_id, s.status, s.lottery_rank,
+      `SELECT s.signup_id, s.event_id, s.member_visible_status AS status, s.lottery_rank,
               s.invite_sent_at, s.decline_token, s.declined_at,
               e.name AS event_name, e.event_date, e.location, e.description
        FROM signups s
        JOIN events e ON e.event_id = s.event_id
        WHERE s.member_id = $1
-         AND s.status IN ('Invited', 'Waitlist')
+         AND s.member_visible_status IN ('Invited', 'Waitlist')
        ORDER BY e.event_date ASC NULLS LAST`,
       [req.member.member_id]
     );
@@ -113,7 +112,7 @@ router.get('/invitations', requireAuth, async (req, res) => {
 router.get('/my', requireAuth, async (req, res) => {
   try {
     const { rows } = await db.query(
-      `SELECT s.signup_id, s.event_id, s.status, s.lottery_rank,
+      `SELECT s.signup_id, s.event_id, s.member_visible_status AS status, s.lottery_rank,
               s.signed_up_at, s.invite_sent_at, s.declined_at,
               e.name AS event_name, e.event_date, e.location
        FROM signups s
@@ -158,8 +157,10 @@ router.post('/:id/decline', requireAuth, async (req, res) => {
     const { newStatus, feeAmount } = determineDeclineOutcome(s, settings, new Date());
     const wasInvited = s.status === 'Invited';
 
+    // Member-caused transition — reflect it in their portal immediately,
+    // there's no "surprise" to hold back since they did this themselves.
     await client.query(
-      `UPDATE signups SET status = $1, declined_at = NOW() WHERE signup_id = $2`,
+      `UPDATE signups SET status = $1, member_visible_status = $1, declined_at = NOW() WHERE signup_id = $2`,
       [newStatus, s.signup_id]
     );
 
@@ -180,24 +181,6 @@ router.post('/:id/decline', requireAuth, async (req, res) => {
     }
 
     await client.query('COMMIT');
-
-    if (newStatus === 'Flaked') {
-      emailSvc.emailFlakeNotice(
-        { email: s.member_email, full_name: s.member_full_name },
-        { event_id: s.event_id, name: s.event_name_resolved, event_date: s.event_date },
-        feeAmount, settings
-      ).catch(e => console.error('Flake notice error:', e.message));
-    }
-
-    if (promoted) {
-      const { rows: evRows } = await db.query('SELECT * FROM events WHERE event_id = $1', [s.event_id]);
-      if (evRows.length) {
-        emailSvc.emailWaitlistPromotion(
-          { email: promoted.member_email, full_name: promoted.member_name },
-          evRows[0], promoted.newDeclineToken, settings
-        ).catch(e => console.error('Promotion email error:', e.message));
-      }
-    }
 
     audit(req.member.email, 'DeclineSignup', 'signups', signupId, { status: s.status }, { status: newStatus });
 
@@ -240,8 +223,9 @@ router.post('/decline-by-token', async (req, res) => {
     const { newStatus, feeAmount } = determineDeclineOutcome(s, settings, new Date());
     const wasInvited = s.status === 'Invited';
 
+    // Member-caused transition — reflect it in their portal immediately.
     await client.query(
-      `UPDATE signups SET status = $1, declined_at = NOW() WHERE signup_id = $2`,
+      `UPDATE signups SET status = $1, member_visible_status = $1, declined_at = NOW() WHERE signup_id = $2`,
       [newStatus, s.signup_id]
     );
 
@@ -265,26 +249,6 @@ router.post('/decline-by-token', async (req, res) => {
 
     await client.query('COMMIT');
 
-    // Best-effort: send flake notice
-    if (newStatus === 'Flaked') {
-      emailSvc.emailFlakeNotice(
-        { email: s.member_email, full_name: s.member_full_name },
-        { event_id: s.event_id, name: s.event_name_resolved, event_date: s.event_date },
-        feeAmount, settings
-      ).catch(e => console.error('Flake notice error:', e.message));
-    }
-
-    // Send promotion email to next waitlist member
-    if (promoted) {
-      const { rows: evRows } = await db.query('SELECT * FROM events WHERE event_id = $1', [s.event_id]);
-      if (evRows.length) {
-        emailSvc.emailWaitlistPromotion(
-          { email: promoted.member_email, full_name: promoted.member_name },
-          evRows[0], promoted.newDeclineToken, settings
-        ).catch(e => console.error('Promotion email error:', e.message));
-      }
-    }
-
     audit('system', 'DeclineSignup', 'signups', s.signup_id, { status: s.status }, { status: newStatus });
 
     return res.json({ ok: true, status: newStatus, promoted: !!promoted });
@@ -301,7 +265,7 @@ router.post('/decline-by-token', async (req, res) => {
 router.get('/by-token/:token', async (req, res) => {
   try {
     const { rows } = await db.query(
-      `SELECT s.signup_id, s.status, s.event_id, s.event_name, s.member_name,
+      `SELECT s.signup_id, s.member_visible_status AS status, s.event_id, s.event_name, s.member_name,
               e.event_date, e.location, e.description
        FROM signups s
        JOIN events e ON e.event_id = s.event_id
@@ -375,16 +339,6 @@ router.post('/:id/promote', requireAdmin, async (req, res) => {
     );
     await client.query('COMMIT');
 
-    // Send promotion email
-    const { rows: evRows } = await db.query('SELECT * FROM events WHERE event_id = $1', [s.event_id]);
-    if (evRows.length) {
-      const settings = await getSettings();
-      emailSvc.emailWaitlistPromotion(
-        { email: s.member_email, full_name: s.member_name },
-        evRows[0], newToken, settings
-      ).catch(e => console.error('Promotion email error:', e.message));
-    }
-
     await audit(req.member.email, 'PromoteWaitlist', 'signups', req.params.id,
       { status: 'Waitlist' }, { status: 'Invited' });
     return res.json({ signup: rows[0] });
@@ -431,17 +385,6 @@ router.post('/:id/demote', requireAdmin, async (req, res) => {
     }
 
     await client.query('COMMIT');
-
-    if (promoted) {
-      const { rows: evRows } = await db.query('SELECT * FROM events WHERE event_id = $1', [s.event_id]);
-      if (evRows.length) {
-        const settings = await getSettings(db);
-        emailSvc.emailWaitlistPromotion(
-          { email: promoted.member_email, full_name: promoted.member_name },
-          evRows[0], promoted.newDeclineToken, settings
-        ).catch(e => console.error('Promotion email error:', e.message));
-      }
-    }
 
     await audit(req.member.email, 'DemoteFromInvited', 'signups', req.params.id,
       { status: 'Invited' }, { status: 'Waitlist', promoted: promoted ? promoted.signup_id : null });

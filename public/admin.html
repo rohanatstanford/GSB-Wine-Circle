@@ -408,8 +408,9 @@
           <button class="btn-secondary btn-sm" id="btn-open-signups"   onclick="eventAction('open')">Open Signups</button>
           <button class="btn-secondary btn-sm" id="btn-close-signups"  onclick="eventAction('close')">Close Signups</button>
           <button class="btn-primary   btn-sm" id="btn-run-lottery"    onclick="eventAction('run-lottery')">Run Lottery</button>
-          <button class="btn-success   btn-sm" id="btn-send-invites"   onclick="eventAction('send-invites')">Send Invite Emails</button>
+          <button class="btn-success   btn-sm" id="btn-create-calendar-invite" onclick="openCalendarInvite()">Create Calendar Invite</button>
           <button class="btn-secondary btn-sm" id="btn-send-lost"      onclick="eventAction('send-lost')">Send Lost Emails</button>
+          <button class="btn-primary   btn-sm" id="btn-push-updates"   onclick="eventAction('push-updates')">Push Portal Updates</button>
           <button class="btn-success   btn-sm" id="btn-finalize"       onclick="eventAction('finalize')">Finalize Event</button>
           <button class="btn-danger    btn-sm" id="btn-cancel-event"   onclick="eventAction('cancel')">Cancel Event</button>
           <button class="btn-secondary btn-sm"                         onclick="openEditEvent()">Edit Details</button>
@@ -450,12 +451,13 @@
                   <th>Member</th>
                   <th>Email</th>
                   <th>Status</th>
+                  <th>Portal</th>
                   <th>Signed Up</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody id="event-signups-tbody">
-                <tr class="loading-row"><td colspan="6"><span class="spinner"></span></td></tr>
+                <tr class="loading-row"><td colspan="7"><span class="spinner"></span></td></tr>
               </tbody>
             </table>
           </div>
@@ -474,6 +476,7 @@
         <div class="page-header">
           <h2>Members</h2>
           <div class="actions">
+            <button class="btn-secondary" onclick="openBulkAddMembers()">Bulk Add</button>
             <button class="btn-primary" onclick="openAddMember()">+ Add Member</button>
           </div>
         </div>
@@ -493,6 +496,7 @@
                 <th>Name</th>
                 <th>Email</th>
                 <th>Affiliation</th>
+                <th>Partner</th>
                 <th>Status</th>
                 <th>Roles</th>
                 <th>Balance</th>
@@ -501,7 +505,7 @@
               </tr>
             </thead>
             <tbody id="members-tbody">
-              <tr class="loading-row"><td colspan="8"><span class="spinner"></span> Loading…</td></tr>
+              <tr class="loading-row"><td colspan="9"><span class="spinner"></span> Loading…</td></tr>
             </tbody>
           </table>
         </div>
@@ -662,6 +666,14 @@
         <label for="m-notes">Notes</label>
         <textarea id="m-notes" rows="2"></textarea>
       </div>
+      <div class="form-group" id="m-partner-section" style="display:none;">
+        <label for="m-partner">Partner</label>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <select id="m-partner" style="flex:1;"></select>
+          <button class="btn-secondary btn-sm" type="button" onclick="linkPartner()">Link</button>
+          <button class="btn-danger btn-sm" type="button" onclick="unlinkPartner()">Unlink</button>
+        </div>
+      </div>
       <div class="form-group">
         <label>Roles</label>
         <label class="form-check" style="margin-bottom:8px;">
@@ -677,6 +689,32 @@
     <div class="modal-footer">
       <button class="btn-secondary" onclick="closeModal('modal-member')">Cancel</button>
       <button class="btn-primary" id="modal-member-submit" onclick="saveMember()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Bulk Add Members modal -->
+<div class="modal-overlay" id="modal-bulk-members">
+  <div class="modal" style="max-width:640px;">
+    <div class="modal-header">
+      <h3>Bulk Add Members</h3>
+      <button class="modal-close" onclick="closeModal('modal-bulk-members')">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="modal-bulk-members-alert"></div>
+      <p class="text-muted" style="font-size:13px;margin-bottom:10px;">
+        Paste rows copied straight from the roster spreadsheet (including the header row).
+        Columns are matched by name — "Email Address", "...GSB Affiliation...", "First name",
+        "Last name", and "...sponsoring student..." — extra columns are ignored.
+      </p>
+      <div class="form-group">
+        <textarea id="bulk-members-input" rows="10" style="font-family:monospace;font-size:12px;" placeholder="Email Address&#9;...GSB Affiliation...&#9;First name&#9;Last name&#9;...sponsoring student...&#10;jane@stanford.edu&#9;MBA 1&#9;Jane&#9;Doe&#9;"></textarea>
+      </div>
+      <div id="bulk-members-results"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('modal-bulk-members')">Close</button>
+      <button class="btn-primary" id="modal-bulk-members-submit" onclick="submitBulkAddMembers()">Import</button>
     </div>
   </div>
 </div>
@@ -1033,7 +1071,7 @@ async function openEventDetail(eventId) {
 
 async function loadEventSignups(eventId) {
   const tbody = document.getElementById('event-signups-tbody');
-  tbody.innerHTML = '<tr class="loading-row"><td colspan="6"><span class="spinner"></span></td></tr>';
+  tbody.innerHTML = '<tr class="loading-row"><td colspan="7"><span class="spinner"></span></td></tr>';
   try {
     const signupsRes = await api('GET', `/events/${eventId}/signups`);
     const signups = signupsRes.signups || signupsRes;
@@ -1049,7 +1087,7 @@ async function loadEventSignups(eventId) {
     `;
 
     if (!signups.length) {
-      tbody.innerHTML = '<tr class="loading-row"><td colspan="6" style="color:var(--muted)">No signups yet.</td></tr>';
+      tbody.innerHTML = '<tr class="loading-row"><td colspan="7" style="color:var(--muted)">No signups yet.</td></tr>';
       return;
     }
     tbody.innerHTML = signups.map((s, i) => `
@@ -1058,6 +1096,9 @@ async function loadEventSignups(eventId) {
         <td style="font-weight:600">${esc(s.member_name)}</td>
         <td>${esc(s.member_email)}</td>
         <td><span class="badge badge-${s.status.toLowerCase()}">${s.status}</span></td>
+        <td>${s.status === s.member_visible_status
+          ? '<span class="badge badge-active">Synced</span>'
+          : `<span class="badge badge-pending" title="Member still sees: ${esc(s.member_visible_status)}">Pending Push</span>`}</td>
         <td class="text-muted" style="font-size:12px">${fmtDateTime(s.signed_up_at)}</td>
         <td>
           <div class="td-actions">
@@ -1068,7 +1109,7 @@ async function loadEventSignups(eventId) {
       </tr>
     `).join('');
   } catch (e) {
-    tbody.innerHTML = `<tr class="loading-row"><td colspan="6" class="text-danger">Error: ${esc(e.message)}</td></tr>`;
+    tbody.innerHTML = `<tr class="loading-row"><td colspan="7" class="text-danger">Error: ${esc(e.message)}</td></tr>`;
   }
 }
 
@@ -1137,8 +1178,8 @@ async function eventAction(action) {
     'open':         ['Open Signups', 'Open signups for this event?', 'btn-success'],
     'close':        ['Close Signups', 'Close signups for this event?', 'btn-warning'],
     'run-lottery':  ['Run Lottery', 'Run the lottery now? This assigns Invited/Waitlist/Lost statuses to all Pending signups.', 'btn-primary'],
-    'send-invites': ['Send Invitation Emails', 'Send invitation emails to all Invited members? This may send many emails.', 'btn-success'],
     'send-lost':    ['Send Lost Emails', 'Send "lottery lost" emails to all Lost members?', 'btn-secondary'],
+    'push-updates': ['Push Portal Updates', 'Push every status change on this event to members\' portals? Anyone with a "Pending Push" row will see their new status immediately.', 'btn-primary'],
     'finalize':     ['Finalize Event', 'Finalize this event? This will mark non-attending invited members as Flaked and charge flake fees.', 'btn-danger'],
     'cancel':       ['Cancel Event', 'Cancel this event?', 'btn-danger'],
   };
@@ -1154,12 +1195,12 @@ async function eventAction(action) {
             <div class="stat-card"><div class="stat-value" style="color:var(--info)">${r.invited ?? 0}</div><div class="stat-label">Invited</div></div>
             <div class="stat-card"><div class="stat-value" style="color:var(--warning)">${r.waitlist ?? 0}</div><div class="stat-label">Waitlist</div></div>
           </div>
-          <p style="margin-top:16px;color:var(--muted);font-size:13px;">The lottery has been run. Review the signups table and send invitation emails when ready.</p>
+          <p style="margin-top:16px;color:var(--muted);font-size:13px;">The lottery has been run. Review the signups table, create a calendar invite, and click "Push Portal Updates" when you're ready for members to see the results.</p>
         `;
         openModal('modal-lottery');
-      } else if (action === 'send-invites') {
-        result = await api('POST', '/email/send-invitations', { event_id: ev });
-        toast(`Sent ${result.sent ?? 0} invitation email(s)`, 'success');
+      } else if (action === 'push-updates') {
+        result = await api('POST', `/events/${ev}/push-updates`);
+        toast(`Pushed ${result.pushed ?? 0} status update(s) to members' portals`, 'success');
       } else if (action === 'send-lost') {
         result = await api('POST', '/email/send-lottery-lost', { event_id: ev });
         toast(`Sent ${result.sent ?? 0} lottery-lost email(s)`, 'success');
@@ -1183,6 +1224,32 @@ async function eventAction(action) {
       toast('Error: ' + e.message, 'error');
     }
   });
+}
+
+async function openCalendarInvite() {
+  try {
+    const evRes = await api('GET', `/events/${currentEventId}`);
+    const ev = evRes.event || evRes;
+    const sigRes = await api('GET', `/events/${currentEventId}/signups`);
+    const invited = (sigRes.signups || sigRes).filter(s => s.status === 'Invited');
+
+    const start = ev.event_date ? new Date(ev.event_date) : new Date();
+    const end = new Date(start.getTime() + 2 * 60 * 60 * 1000); // no end-time field exists; default 2h
+    const fmt = d => d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+
+    const params = new URLSearchParams({
+      action: 'TEMPLATE',
+      text: ev.name || 'Wine Circle Event',
+      dates: `${fmt(start)}/${fmt(end)}`,
+      details: ev.description || '',
+      location: ev.location || '',
+    });
+    if (invited.length) params.set('add', invited.map(s => s.member_email).join(','));
+
+    window.open(`https://calendar.google.com/calendar/render?${params.toString()}`, '_blank');
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
+  }
 }
 
 async function downloadAttendeesCsv() {
@@ -1296,13 +1363,13 @@ async function saveEvent() {
 /* ── Members ─────────────────────────────────────────────────────────────── */
 async function loadMembers() {
   const tbody = document.getElementById('members-tbody');
-  tbody.innerHTML = '<tr class="loading-row"><td colspan="8"><span class="spinner"></span> Loading…</td></tr>';
+  tbody.innerHTML = '<tr class="loading-row"><td colspan="9"><span class="spinner"></span> Loading…</td></tr>';
   try {
     const membersRes = await api('GET', '/members');
     allMembers = membersRes.members || membersRes;
     renderMembers();
   } catch (e) {
-    tbody.innerHTML = `<tr class="loading-row"><td colspan="8" class="text-danger">Error: ${esc(e.message)}</td></tr>`;
+    tbody.innerHTML = `<tr class="loading-row"><td colspan="9" class="text-danger">Error: ${esc(e.message)}</td></tr>`;
   }
 }
 
@@ -1318,7 +1385,7 @@ function renderMembers() {
   if (search) list = list.filter(m => (m.full_name + m.email).toLowerCase().includes(search));
   if (status) list = list.filter(m => m.status === status);
   if (!list.length) {
-    tbody.innerHTML = '<tr class="loading-row"><td colspan="8" style="color:var(--muted)">No members found.</td></tr>';
+    tbody.innerHTML = '<tr class="loading-row"><td colspan="9" style="color:var(--muted)">No members found.</td></tr>';
     return;
   }
   tbody.innerHTML = list.map(m => `
@@ -1326,6 +1393,7 @@ function renderMembers() {
       <td style="font-weight:600">${esc(m.full_name)}</td>
       <td class="monospace">${esc(m.email)}</td>
       <td>${esc(m.affiliation) || '<span class="text-muted">—</span>'}</td>
+      <td>${m.partner_name ? esc(m.partner_name) : '<span class="text-muted">—</span>'}</td>
       <td><span class="badge badge-${m.status.toLowerCase()}">${m.status}</span></td>
       <td>
         ${m.is_admin ? '<span class="badge badge-admin">Admin</span> ' : ''}
@@ -1357,6 +1425,7 @@ function openAddMember() {
   document.getElementById('m-status').value = 'Active';
   document.getElementById('m-is-admin').checked = false;
   document.getElementById('m-can-clear-fees').checked = false;
+  document.getElementById('m-partner-section').style.display = 'none';
   openModal('modal-member');
 }
 
@@ -1374,7 +1443,140 @@ function openEditMember(memberId) {
   document.getElementById('m-notes').value = m.notes || '';
   document.getElementById('m-is-admin').checked = !!m.is_admin;
   document.getElementById('m-can-clear-fees').checked = !!m.can_clear_fees;
+  document.getElementById('m-partner-section').style.display = '';
+  populatePartnerSelect(m);
   openModal('modal-member');
+}
+
+function populatePartnerSelect(m) {
+  const sel = document.getElementById('m-partner');
+  const candidates = allMembers.filter(o =>
+    o.member_id !== m.member_id && (!o.partner_member_id || o.partner_member_id === m.member_id)
+  );
+  sel.innerHTML = '<option value="">— none —</option>' + candidates.map(o =>
+    `<option value="${o.member_id}" ${o.member_id === m.partner_member_id ? 'selected' : ''}>${esc(o.full_name)}</option>`
+  ).join('');
+}
+
+async function linkPartner() {
+  const partnerId = document.getElementById('m-partner').value;
+  if (!partnerId) return showAlert('modal-member-alert', 'Choose a partner to link.', 'error');
+  try {
+    await api('POST', `/members/${editingMemberId}/link-partner`, { partner_id: partnerId });
+    toast('Partner linked', 'success');
+    await loadMembers();
+    openEditMember(editingMemberId);
+  } catch (e) {
+    showAlert('modal-member-alert', e.message, 'error');
+  }
+}
+
+async function unlinkPartner() {
+  try {
+    await api('POST', `/members/${editingMemberId}/unlink-partner`);
+    toast('Partner unlinked', 'success');
+    await loadMembers();
+    openEditMember(editingMemberId);
+  } catch (e) {
+    showAlert('modal-member-alert', e.message, 'error');
+  }
+}
+
+function openBulkAddMembers() {
+  clearAlert('modal-bulk-members-alert');
+  document.getElementById('bulk-members-input').value = '';
+  document.getElementById('bulk-members-results').innerHTML = '';
+  openModal('modal-bulk-members');
+}
+
+// Splits one CSV line into fields, honoring double-quoted fields that may
+// contain commas or escaped ("") quotes. Not needed for tab-separated input
+// (Google Sheets paste), where a plain split is safe.
+function csvSplitLine(line) {
+  const out = [];
+  let cur = '', inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQuotes) {
+      if (c === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+      else if (c === '"') { inQuotes = false; }
+      else { cur += c; }
+    } else if (c === '"') {
+      inQuotes = true;
+    } else if (c === ',') {
+      out.push(cur); cur = '';
+    } else {
+      cur += c;
+    }
+  }
+  out.push(cur);
+  return out;
+}
+
+// Parses pasted roster rows into { email, first_name, last_name, affiliation,
+// sponsor_email } objects, matching header columns by case-insensitive
+// substring so small wording differences in the form export don't break it.
+function parseBulkMembersInput(raw) {
+  const lines = raw.split(/\r\n|\n|\r/).filter(l => l.trim().length);
+  if (!lines.length) return [];
+  const isTsv = lines[0].includes('\t');
+  const splitLine = isTsv ? (l => l.split('\t')) : csvSplitLine;
+
+  const header = splitLine(lines[0]).map(h => h.trim().toLowerCase());
+  const findCol = needle => header.findIndex(h => h.includes(needle));
+  const idx = {
+    email: findCol('email address'),
+    affiliation: findCol('gsb affiliation'),
+    first: findCol('first name'),
+    last: findCol('last name'),
+    sponsor: findCol('sponsoring student'),
+  };
+  if (idx.email === -1 || idx.first === -1 || idx.last === -1) {
+    throw new Error('Could not find "Email Address", "First name", and "Last name" columns in the pasted data.');
+  }
+
+  return lines.slice(1).map(line => {
+    const cols = splitLine(line);
+    return {
+      email: (cols[idx.email] || '').trim(),
+      first_name: (cols[idx.first] || '').trim(),
+      last_name: (cols[idx.last] || '').trim(),
+      affiliation: idx.affiliation > -1 ? (cols[idx.affiliation] || '').trim() : '',
+      sponsor_email: idx.sponsor > -1 ? (cols[idx.sponsor] || '').trim() : '',
+    };
+  }).filter(r => r.email);
+}
+
+async function submitBulkAddMembers() {
+  const raw = document.getElementById('bulk-members-input').value;
+  clearAlert('modal-bulk-members-alert');
+  document.getElementById('bulk-members-results').innerHTML = '';
+
+  let rows;
+  try {
+    rows = parseBulkMembersInput(raw);
+  } catch (e) {
+    return showAlert('modal-bulk-members-alert', e.message, 'error');
+  }
+  if (!rows.length) return showAlert('modal-bulk-members-alert', 'No data rows found to import.', 'error');
+
+  const btn = document.getElementById('modal-bulk-members-submit');
+  btn.disabled = true;
+  try {
+    const result = await api('POST', '/members/bulk-import', { rows });
+    document.getElementById('bulk-members-results').innerHTML = `
+      <div class="alert alert-success">
+        Added ${result.inserted} member(s)${result.linked ? `, linked ${result.linked} partner pair(s)` : ''}.
+        ${result.skipped.length ? `<br>Skipped ${result.skipped.length} already-existing email(s): ${result.skipped.map(esc).join(', ')}` : ''}
+        ${result.errors.length ? `<br><span class="text-danger">${result.errors.length} row(s) had errors: ${result.errors.map(e => esc(e.email) + ' — ' + esc(e.reason)).join('; ')}</span>` : ''}
+      </div>
+    `;
+    await loadMembers();
+  } catch (e) {
+    showAlert('modal-bulk-members-alert', e.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 async function saveMember() {

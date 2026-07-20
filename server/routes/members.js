@@ -4,8 +4,6 @@ const { v4: uuidv4 } = require('uuid');
 const db = require('../db');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { audit } = require('../services/audit');
-const emailSvc = require('../services/email');
-const { getSettings } = emailSvc;
 const { promoteNextWaitlist } = require('../services/fees');
 
 const router = express.Router();
@@ -15,9 +13,12 @@ router.get('/', requireAuth, async (req, res) => {
   try {
     if (req.isAdmin) {
       const { rows } = await db.query(
-        `SELECT member_id, email, full_name, affiliation, is_admin, can_clear_fees,
-                fee_balance, status, date_joined, notes
-         FROM members ORDER BY full_name`
+        `SELECT m.member_id, m.email, m.full_name, m.affiliation, m.is_admin, m.can_clear_fees,
+                m.fee_balance, m.status, m.date_joined, m.notes,
+                m.partner_member_id, p.full_name AS partner_name
+         FROM members m
+         LEFT JOIN members p ON p.member_id = m.partner_member_id
+         ORDER BY m.full_name`
       );
       return res.json({ members: rows });
     }
@@ -89,6 +90,85 @@ router.post('/', requireAdmin, async (req, res) => {
   }
 });
 
+// POST /api/members/bulk-import — admin: create members from a parsed roster
+// spreadsheet. Body: { rows: [{ email, first_name, last_name, affiliation, sponsor_email }] }
+// (parsing the pasted CSV/TSV happens client-side; this endpoint only handles
+// the domain logic: dedup, insert, and auto-linking SO/sponsor pairs as partners.)
+router.post('/bulk-import', requireAdmin, async (req, res) => {
+  const { rows } = req.body;
+  if (!Array.isArray(rows) || !rows.length) {
+    return res.status(400).json({ error: 'rows required' });
+  }
+
+  const results = { inserted: 0, skipped: [], linked: 0, errors: [] };
+  const memberIdByEmail = new Map();
+
+  for (const r of rows) {
+    const email = (r.email || '').trim().toLowerCase();
+    const fullName = `${(r.first_name || '').trim()} ${(r.last_name || '').trim()}`.trim();
+    if (!email || !email.includes('@') || !fullName) {
+      results.errors.push({ email: r.email || '(blank)', reason: 'Missing email or name' });
+      continue;
+    }
+    try {
+      const { rows: existing } = await db.query('SELECT member_id FROM members WHERE LOWER(email) = $1', [email]);
+      if (existing.length) {
+        results.skipped.push(email);
+        memberIdByEmail.set(email, existing[0].member_id);
+        continue;
+      }
+      const memberId = 'm_' + uuidv4().replace(/-/g, '');
+      await db.query(
+        `INSERT INTO members (member_id, email, full_name, affiliation, fee_balance, status)
+         VALUES ($1, $2, $3, $4, 0, 'Active')`,
+        [memberId, email, fullName, (r.affiliation || '').trim()]
+      );
+      memberIdByEmail.set(email, memberId);
+      results.inserted++;
+    } catch (err) {
+      results.errors.push({ email, reason: err.message });
+    }
+  }
+
+  // Second pass: auto-link SO/sponsoring-student pairs where both sides are
+  // known members and neither already has a partner.
+  for (const r of rows) {
+    const email = (r.email || '').trim().toLowerCase();
+    const sponsorEmail = (r.sponsor_email || '').trim().toLowerCase();
+    if (!sponsorEmail || !memberIdByEmail.has(email)) continue;
+    const memberId = memberIdByEmail.get(email);
+
+    let sponsorId = memberIdByEmail.get(sponsorEmail);
+    if (!sponsorId) {
+      const { rows: sp } = await db.query('SELECT member_id FROM members WHERE LOWER(email) = $1', [sponsorEmail]);
+      if (sp.length) sponsorId = sp[0].member_id;
+    }
+    if (!sponsorId || sponsorId === memberId) continue;
+
+    try {
+      const { rows: current } = await db.query(
+        'SELECT member_id, partner_member_id FROM members WHERE member_id IN ($1, $2)',
+        [memberId, sponsorId]
+      );
+      const me = current.find(m => m.member_id === memberId);
+      const sponsor = current.find(m => m.member_id === sponsorId);
+      if (me && sponsor && !me.partner_member_id && !sponsor.partner_member_id) {
+        await db.query('UPDATE members SET partner_member_id = $1 WHERE member_id = $2', [sponsorId, memberId]);
+        await db.query('UPDATE members SET partner_member_id = $1 WHERE member_id = $2', [memberId, sponsorId]);
+        results.linked++;
+      }
+    } catch (err) {
+      results.errors.push({ email, reason: `Partner link failed: ${err.message}` });
+    }
+  }
+
+  await audit(req.member.email, 'BulkImportMembers', 'members', '', null, {
+    inserted: results.inserted, skipped: results.skipped.length,
+    linked: results.linked, errors: results.errors.length,
+  });
+  return res.json(results);
+});
+
 // PATCH /api/members/:id — admin: update member fields
 router.patch('/:id', requireAdmin, async (req, res) => {
   const { id } = req.params;
@@ -116,6 +196,60 @@ router.patch('/:id', requireAdmin, async (req, res) => {
 
     await audit(req.member.email, 'UpdateMember', 'members', id, old, updates);
     return res.json({ member: rows[0] });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+// POST /api/members/:id/link-partner — admin: mutually link two members as partners
+router.post('/:id/link-partner', requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { partner_id } = req.body;
+  if (!partner_id || partner_id === id) {
+    return res.status(400).json({ error: 'A valid, different partner_id is required' });
+  }
+  try {
+    const { rows } = await db.query(
+      'SELECT member_id, partner_member_id FROM members WHERE member_id IN ($1, $2)',
+      [id, partner_id]
+    );
+    const me = rows.find(r => r.member_id === id);
+    const other = rows.find(r => r.member_id === partner_id);
+    if (!me || !other) return res.status(404).json({ error: 'Member not found' });
+    if (me.partner_member_id && me.partner_member_id !== partner_id) {
+      return res.status(409).json({ error: 'This member is already linked to someone else. Unlink first.' });
+    }
+    if (other.partner_member_id && other.partner_member_id !== id) {
+      return res.status(409).json({ error: 'That member is already linked to someone else. Unlink first.' });
+    }
+
+    await db.query('UPDATE members SET partner_member_id = $1 WHERE member_id = $2', [partner_id, id]);
+    await db.query('UPDATE members SET partner_member_id = $1 WHERE member_id = $2', [id, partner_id]);
+
+    await audit(req.member.email, 'LinkPartner', 'members', id, null, { partner_id });
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+// POST /api/members/:id/unlink-partner — admin: clear a partner link on both sides
+router.post('/:id/unlink-partner', requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const { rows } = await db.query('SELECT partner_member_id FROM members WHERE member_id = $1', [id]);
+    if (!rows.length) return res.status(404).json({ error: 'Member not found' });
+    const partnerId = rows[0].partner_member_id;
+
+    await db.query('UPDATE members SET partner_member_id = NULL WHERE member_id = $1', [id]);
+    if (partnerId) {
+      await db.query('UPDATE members SET partner_member_id = NULL WHERE member_id = $1', [partnerId]);
+    }
+
+    await audit(req.member.email, 'UnlinkPartner', 'members', id, { partner_id: partnerId }, null);
+    return res.json({ ok: true });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Internal error' });
@@ -170,20 +304,6 @@ router.post('/:id/deactivate', requireAdmin, async (req, res) => {
     }
 
     await client.query('COMMIT');
-
-    // Best-effort: notify newly-promoted members after commit.
-    if (promotions.length) {
-      const settings = await getSettings(db);
-      for (const p of promotions) {
-        const { rows: evRows } = await db.query('SELECT * FROM events WHERE event_id = $1', [p.event_id]);
-        if (evRows.length) {
-          emailSvc.emailWaitlistPromotion(
-            { email: p.member_email, full_name: p.member_name },
-            evRows[0], p.newDeclineToken, settings
-          ).catch(e => console.error('Promotion email error:', e.message));
-        }
-      }
-    }
 
     await audit(req.member.email, 'DeactivateMember', 'members', id, null, {
       status: 'Inactive',

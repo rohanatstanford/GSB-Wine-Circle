@@ -13,12 +13,16 @@ CREATE TABLE IF NOT EXISTS members (
   status          TEXT NOT NULL DEFAULT 'Active',   -- Active | Inactive | Blocked
   date_joined     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   notes           TEXT NOT NULL DEFAULT '',
+  partner_member_id TEXT REFERENCES members (member_id) ON DELETE SET NULL,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE members ADD COLUMN IF NOT EXISTS partner_member_id TEXT REFERENCES members (member_id) ON DELETE SET NULL;
+
 CREATE INDEX IF NOT EXISTS idx_members_email  ON members (LOWER(email));
 CREATE INDEX IF NOT EXISTS idx_members_status ON members (status);
+CREATE INDEX IF NOT EXISTS idx_members_partner_id ON members (partner_member_id);
 
 -- ── Events ───────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS events (
@@ -55,6 +59,11 @@ CREATE TABLE IF NOT EXISTS signups (
   signed_up_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   lottery_rank        INTEGER,
   status              TEXT NOT NULL DEFAULT 'Pending', -- Pending | Lost | Waitlist | Invited | Dropped | Flaked | Attended
+  -- What the member actually sees in their portal. Deliberately decoupled from
+  -- `status` so admin actions (lottery, promote/demote, finalize) don't reveal
+  -- anything until an admin explicitly pushes the update; member-caused
+  -- transitions (signup, decline) set this in lockstep with `status` instead.
+  member_visible_status TEXT NOT NULL DEFAULT 'Pending',
   invite_sent_at      TIMESTAMPTZ,
   decline_token       TEXT UNIQUE,
   declined_at         TIMESTAMPTZ,
@@ -65,6 +74,11 @@ CREATE TABLE IF NOT EXISTS signups (
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (event_id, member_id)
 );
+
+ALTER TABLE signups ADD COLUMN IF NOT EXISTS member_visible_status TEXT NOT NULL DEFAULT 'Pending';
+-- Backfill: existing rows should show as already-synced, not as a sudden
+-- backlog of "pending push" the moment this ships.
+UPDATE signups SET member_visible_status = status WHERE member_visible_status != status;
 
 CREATE INDEX IF NOT EXISTS idx_signups_event_id     ON signups (event_id);
 CREATE INDEX IF NOT EXISTS idx_signups_member_id    ON signups (member_id);
