@@ -614,6 +614,28 @@
             <tfoot id="analytics-tfoot"></tfoot>
           </table>
         </div>
+
+        <div class="card" style="margin-top:20px;">
+          <div class="page-header">
+            <h3 style="margin:0;">Member History</h3>
+          </div>
+          <div class="toolbar">
+            <select id="analytics-member-select" onchange="renderMemberHistory()">
+              <option value="">Select a member…</option>
+            </select>
+          </div>
+          <div id="member-history-summary" class="event-meta"></div>
+          <div class="table-wrap" style="overflow:auto; max-height:50vh;">
+            <table id="member-history-table" style="font-size:12px;">
+              <thead>
+                <tr><th>Event</th><th>Date</th><th>Status</th><th>Dollar Value</th></tr>
+              </thead>
+              <tbody id="member-history-tbody">
+                <tr class="loading-row"><td colspan="4" style="color:var(--muted)">Select a member to see their history.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       <!-- ── Audit Log Page ──────────────────────────────────────────────── -->
@@ -2040,7 +2062,8 @@ async function saveSetting(key) {
 }
 
 /* ── Analytics (Exec Team only) ─────────────────────────────────────────── */
-let analyticsFixedCols = 3; // Member, Email, School Year
+let analyticsFixedCols = 4; // Member, Email, Affiliation, School Year
+let analyticsData = null; // cached matrix payload, reused by renderMemberHistory()
 
 async function loadAnalytics() {
   const thead = document.getElementById('analytics-thead');
@@ -2054,6 +2077,7 @@ async function loadAnalytics() {
   try {
     const res = await api('GET', `/analytics/matrix${year ? '?school_year=' + encodeURIComponent(year) : ''}`);
     const { members, events, cells, totals } = res;
+    analyticsData = { members, events, cells, totals };
 
     // Populate the year filter from whatever school years actually exist,
     // without clobbering the admin's current selection.
@@ -2065,13 +2089,22 @@ async function loadAnalytics() {
       yearSel.dataset.populated = '1';
     }
 
+    // Populate the member-history select, preserving the current selection
+    // if that member is still in the (possibly year-filtered) list.
+    const memberSel = document.getElementById('analytics-member-select');
+    const prevSelected = memberSel.value;
+    memberSel.innerHTML = '<option value="">Select a member…</option>' +
+      members.map(m => `<option value="${esc(m.member_id)}">${esc(m.full_name)}</option>`).join('');
+    memberSel.value = members.some(m => m.member_id === prevSelected) ? prevSelected : '';
+    renderMemberHistory();
+
     const colCount = analyticsFixedCols + events.length;
     if (!members.length || !events.length) {
       tbody.innerHTML = `<tr class="loading-row"><td colspan="${colCount}" style="color:var(--muted)">No data yet.</td></tr>`;
       return;
     }
 
-    thead.innerHTML = `<tr><th>Member</th><th>Email</th><th>Year</th>${
+    thead.innerHTML = `<tr><th>Member</th><th>Email</th><th>Affiliation</th><th>Year</th>${
       events.map(e => `<th style="white-space:nowrap;">${esc(e.name)}</th>`).join('')
     }</tr>`;
 
@@ -2079,6 +2112,7 @@ async function loadAnalytics() {
       <tr>
         <td style="font-weight:600; white-space:nowrap;">${esc(m.full_name)}</td>
         <td class="monospace">${esc(m.email)}</td>
+        <td>${esc(m.affiliation) || '—'}</td>
         <td>${esc(m.school_year) || '—'}</td>
         ${events.map(e => {
           const status = cells[m.member_id]?.[e.event_id];
@@ -2090,7 +2124,7 @@ async function loadAnalytics() {
     const pct = v => Math.round(v * 100) + '%';
     const summaryRow = (label, fn) => `
       <tr>
-        <td colspan="3" style="font-weight:700;">${esc(label)}</td>
+        <td colspan="${analyticsFixedCols}" style="font-weight:700;">${esc(label)}</td>
         ${events.map(e => `<td style="font-weight:700;">${fn(totals[e.event_id])}</td>`).join('')}
       </tr>`;
     tfoot.innerHTML =
@@ -2107,6 +2141,61 @@ async function loadAnalytics() {
   } catch (e) {
     tbody.innerHTML = `<tr class="loading-row"><td class="text-danger">Error: ${esc(e.message)}</td></tr>`;
   }
+}
+
+function renderMemberHistory() {
+  const memberId = document.getElementById('analytics-member-select').value;
+  const tbody = document.getElementById('member-history-tbody');
+  const summary = document.getElementById('member-history-summary');
+
+  if (!memberId || !analyticsData) {
+    tbody.innerHTML = '<tr class="loading-row"><td colspan="4" style="color:var(--muted)">Select a member to see their history.</td></tr>';
+    summary.innerHTML = '';
+    return;
+  }
+
+  const { events, cells } = analyticsData;
+  const memberCells = cells[memberId] || {};
+  const rows = events
+    .map(e => ({ event: e, status: memberCells[e.event_id] }))
+    .filter(r => r.status);
+
+  if (!rows.length) {
+    tbody.innerHTML = '<tr class="loading-row"><td colspan="4" style="color:var(--muted)">No signup history for this member.</td></tr>';
+    summary.innerHTML = '';
+    return;
+  }
+
+  tbody.innerHTML = rows.map(({ event, status }) => `
+    <tr>
+      <td style="font-weight:600;">${esc(event.name)}</td>
+      <td>${event.event_date ? fmtDate(event.event_date) : '—'}</td>
+      <td><span class="badge badge-${status.toLowerCase()}">${esc(status)}</span></td>
+      <td>${status === 'Attended' && event.dollar_value != null ? '$' + parseFloat(event.dollar_value).toFixed(2) : '—'}</td>
+    </tr>
+  `).join('');
+
+  const GIVEN_CHANCE = ['Invited', 'Attended', 'Flaked'];
+  const applied = rows.length;
+  const givenChance = rows.filter(r => GIVEN_CHANCE.includes(r.status)).length;
+  const attended = rows.filter(r => r.status === 'Attended').length;
+  const dropped = rows.filter(r => r.status === 'Dropped').length;
+  const flaked = rows.filter(r => r.status === 'Flaked').length;
+  const totalDollarValue = rows
+    .filter(r => r.status === 'Attended' && r.event.dollar_value != null)
+    .reduce((sum, r) => sum + parseFloat(r.event.dollar_value), 0);
+  const pct = (n, d) => d ? Math.round((n / d) * 100) + '%' : '—';
+
+  summary.innerHTML = `
+    <div class="meta-item"><div class="meta-label">Applied</div><div class="meta-value">${applied}</div></div>
+    <div class="meta-item"><div class="meta-label">Given a Chance</div><div class="meta-value">${givenChance}</div></div>
+    <div class="meta-item"><div class="meta-label">Attended</div><div class="meta-value">${attended}</div></div>
+    <div class="meta-item"><div class="meta-label">Dropped</div><div class="meta-value">${dropped}</div></div>
+    <div class="meta-item"><div class="meta-label">Flaked</div><div class="meta-value">${flaked}</div></div>
+    <div class="meta-item"><div class="meta-label">% Attended</div><div class="meta-value">${pct(attended, applied)}</div></div>
+    <div class="meta-item"><div class="meta-label">% Attended of Given a Chance</div><div class="meta-value">${pct(attended, givenChance)}</div></div>
+    <div class="meta-item"><div class="meta-label">Total Dollar Value</div><div class="meta-value">$${totalDollarValue.toFixed(2)}</div></div>
+  `;
 }
 
 async function downloadAnalyticsXlsx() {

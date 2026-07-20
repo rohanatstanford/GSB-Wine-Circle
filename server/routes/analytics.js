@@ -21,7 +21,7 @@ async function loadAnalyticsData(schoolYear) {
     memberWhere = 'WHERE school_year = $1';
   }
   const { rows: members } = await db.query(
-    `SELECT member_id, full_name, email, school_year FROM members ${memberWhere} ORDER BY full_name`,
+    `SELECT member_id, full_name, email, affiliation, school_year FROM members ${memberWhere} ORDER BY full_name`,
     memberParams
   );
   const { rows: events } = await db.query(
@@ -69,7 +69,7 @@ router.get('/export.xlsx', requireAdmin, requireExecTeam, async (req, res) => {
 
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('Analytics');
-    const fixedCols = ['Member', 'Email', 'School Year'];
+    const fixedCols = ['Member', 'Email', 'Affiliation', 'School Year'];
 
     const header = ws.addRow([...fixedCols, ...events.map(e => e.name)]);
     header.eachCell(cell => {
@@ -79,7 +79,7 @@ router.get('/export.xlsx', requireAdmin, requireExecTeam, async (req, res) => {
 
     members.forEach(m => {
       const row = ws.addRow([
-        m.full_name, m.email, m.school_year || '',
+        m.full_name, m.email, m.affiliation || '', m.school_year || '',
         ...events.map(e => cells[m.member_id]?.[e.event_id] || ''),
       ]);
       events.forEach((e, i) => {
@@ -91,7 +91,7 @@ router.get('/export.xlsx', requireAdmin, requireExecTeam, async (req, res) => {
 
     const pct = v => (v * 100).toFixed(0) + '%';
     const addSummaryRow = (label, values) => {
-      const row = ws.addRow([label, '', '', ...values]);
+      const row = ws.addRow([label, ...Array(fixedCols.length - 1).fill(''), ...values]);
       row.font = { bold: true };
       return row;
     };
