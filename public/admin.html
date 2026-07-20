@@ -144,6 +144,19 @@
     td { padding: 10px 12px; vertical-align: middle; }
     .td-actions { white-space: nowrap; display: flex; gap: 4px; }
 
+    /* Column resizing (Chromium supports resize on table cells; other browsers
+       just ignore it and the column stays fixed — a harmless no-op there). */
+    th.col-resizable { resize: horizontal; overflow: auto; min-width: 60px; }
+
+    /* Sortable column headers */
+    th.col-sortable { cursor: pointer; user-select: none; }
+    th.col-sortable:hover { color: var(--wine); }
+    th.col-sortable .sort-arrow { margin-left: 3px; opacity: .6; }
+
+    /* Visual break between individual records and per-column totals */
+    #analytics-table tfoot td { background: var(--bg); }
+    #analytics-table tfoot tr:first-child td { border-top: 3px solid var(--wine); padding-top: 12px; }
+
     /* ── Badges ───────────────────────────────────────────────────────────── */
     .badge {
       display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px;
@@ -627,6 +640,8 @@
           </table>
         </div>
 
+        <div class="stat-grid" id="analytics-averages" style="margin-top:20px;"></div>
+
         <div class="card" style="margin-top:20px;">
           <div class="card-body" style="padding-bottom:0;">
             <div class="page-header">
@@ -775,6 +790,10 @@
       <div class="form-group">
         <label for="m-notes">Notes</label>
         <textarea id="m-notes" rows="2"></textarea>
+      </div>
+      <div class="form-group" id="m-exec-notes-section" style="display:none;">
+        <label for="m-exec-notes">Exec Notes (only visible to Exec Team)</label>
+        <textarea id="m-exec-notes" rows="2"></textarea>
       </div>
       <div class="form-group" id="m-partner-section" style="display:none;">
         <label for="m-partner">Partner</label>
@@ -968,6 +987,26 @@
     <div class="modal-footer">
       <button class="btn-secondary" onclick="closeModal('modal-confirm')">Cancel</button>
       <button class="btn-danger" id="modal-confirm-ok" onclick="">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-confirm-delete">
+  <div class="modal" style="max-width:400px;">
+    <div class="modal-header">
+      <h3 id="modal-confirm-delete-title">Confirm</h3>
+      <button class="modal-close" onclick="closeModal('modal-confirm-delete')">×</button>
+    </div>
+    <div class="modal-body">
+      <p id="modal-confirm-delete-message"></p>
+      <div class="form-group" style="margin-top:12px;">
+        <label for="modal-confirm-delete-input">Type <strong>delete</strong> to confirm</label>
+        <input type="text" id="modal-confirm-delete-input" autocomplete="off" oninput="onConfirmDeleteInput()" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('modal-confirm-delete')">Cancel</button>
+      <button class="btn-danger" id="modal-confirm-delete-ok" onclick="" disabled>Delete</button>
     </div>
   </div>
 </div>
@@ -1635,10 +1674,9 @@ async function deleteSelectedMembers() {
   const ids = [...selectedMemberIds];
   if (!ids.length) return toast('No members selected.', 'error');
   const names = allMembers.filter(m => ids.includes(m.member_id)).map(m => m.full_name);
-  confirm(
+  confirmWithTypedDelete(
     'Delete Members',
     `Permanently delete ${ids.length} member(s) — ${names.join(', ')}? This cannot be undone: their entire signup and fee history will be deleted too.`,
-    'btn-danger',
     async () => {
       try {
         const result = await api('POST', '/members/bulk-delete', { member_ids: ids });
@@ -1659,13 +1697,14 @@ function openAddMember() {
   document.getElementById('modal-member-title').textContent = 'Add Member';
   document.getElementById('modal-member-submit').textContent = 'Add Member';
   clearAlert('modal-member-alert');
-  ['m-full-name','m-email','m-affiliation','m-notes'].forEach(id => document.getElementById(id).value = '');
+  ['m-full-name','m-email','m-affiliation','m-notes','m-exec-notes'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('m-school-year').value = currentSettings?.current_school_year || '';
   document.getElementById('m-status').value = 'Active';
   document.getElementById('m-is-admin').checked = false;
   document.getElementById('m-exec-team').checked = false;
   document.getElementById('m-is-admin').disabled = !currentMember?.is_exec_team;
   document.getElementById('m-exec-team').disabled = !currentMember?.is_exec_team;
+  document.getElementById('m-exec-notes-section').style.display = currentMember?.is_exec_team ? '' : 'none';
   document.getElementById('m-partner-section').style.display = 'none';
   openModal('modal-member');
 }
@@ -1687,6 +1726,8 @@ function openEditMember(memberId) {
   document.getElementById('m-exec-team').checked = !!m.is_exec_team;
   document.getElementById('m-is-admin').disabled = !currentMember?.is_exec_team;
   document.getElementById('m-exec-team').disabled = !currentMember?.is_exec_team;
+  document.getElementById('m-exec-notes-section').style.display = currentMember?.is_exec_team ? '' : 'none';
+  document.getElementById('m-exec-notes').value = m.exec_notes || '';
   document.getElementById('m-partner-section').style.display = '';
   populatePartnerSelect(m);
   openModal('modal-member');
@@ -1851,6 +1892,9 @@ async function saveMember() {
     is_admin:     document.getElementById('m-is-admin').checked,
     is_exec_team: document.getElementById('m-exec-team').checked,
   };
+  if (currentMember?.is_exec_team) {
+    payload.exec_notes = document.getElementById('m-exec-notes').value.trim();
+  }
   const btn = document.getElementById('modal-member-submit');
   btn.disabled = true;
   try {
@@ -2137,16 +2181,16 @@ async function saveSetting(key) {
 }
 
 /* ── Analytics (Exec Team only) ─────────────────────────────────────────── */
-let analyticsFixedCols = 4; // Member, Email, Affiliation, School Year
+let analyticsFixedCols = 7; // Member, Email, Affiliation, Year, Applied, Attended, Total Value
 let analyticsData = null; // cached matrix payload, reused by renderMemberHistory()
+let analyticsSortKey = null;
+let analyticsSortDir = -1; // -1 = descending ("most" first), 1 = ascending
 
 async function loadAnalytics() {
-  const thead = document.getElementById('analytics-thead');
   const tbody = document.getElementById('analytics-tbody');
-  const tfoot = document.getElementById('analytics-tfoot');
   tbody.innerHTML = '<tr class="loading-row"><td><span class="spinner"></span> Loading…</td></tr>';
-  thead.innerHTML = '';
-  tfoot.innerHTML = '';
+  document.getElementById('analytics-thead').innerHTML = '';
+  document.getElementById('analytics-tfoot').innerHTML = '';
 
   const year = document.getElementById('analytics-year-filter').value;
   try {
@@ -2172,50 +2216,127 @@ async function loadAnalytics() {
       document.getElementById('analytics-member-search').value = '';
     }
     renderMemberHistory();
-
-    const colCount = analyticsFixedCols + events.length;
-    if (!members.length || !events.length) {
-      tbody.innerHTML = `<tr class="loading-row"><td colspan="${colCount}" style="color:var(--muted)">No data yet.</td></tr>`;
-      return;
-    }
-
-    thead.innerHTML = `<tr><th>Member</th><th>Email</th><th>Affiliation</th><th>Year</th>${
-      events.map(e => `<th style="white-space:nowrap;">${esc(e.name)}</th>`).join('')
-    }</tr>`;
-
-    tbody.innerHTML = members.map(m => `
-      <tr>
-        <td style="font-weight:600; white-space:nowrap;">${esc(m.full_name)}</td>
-        <td class="monospace">${esc(m.email)}</td>
-        <td>${esc(m.affiliation) || '—'}</td>
-        <td>${esc(m.school_year) || '—'}</td>
-        ${events.map(e => {
-          const status = cells[m.member_id]?.[e.event_id];
-          return `<td>${status ? `<span class="badge badge-${status.toLowerCase()}">${esc(status)}</span>` : ''}</td>`;
-        }).join('')}
-      </tr>
-    `).join('');
-
-    const pct = v => Math.round(v * 100) + '%';
-    const summaryRow = (label, fn) => `
-      <tr>
-        <td colspan="${analyticsFixedCols}" style="font-weight:700;">${esc(label)}</td>
-        ${events.map(e => `<td style="font-weight:700;">${fn(totals[e.event_id])}</td>`).join('')}
-      </tr>`;
-    tfoot.innerHTML =
-      summaryRow('Applied', t => t.applied) +
-      summaryRow('Dropped', t => t.dropped) +
-      summaryRow('Flaked', t => t.flaked) +
-      summaryRow('Attended', t => t.attended) +
-      summaryRow('% Attended', t => pct(t.pctAttended)) +
-      summaryRow('# Given a Chance', t => t.givenChance) +
-      summaryRow('% Given a Chance', t => pct(t.pctGivenChance)) +
-      summaryRow('% Attended of Given a Chance', t => pct(t.pctAttendedOfGivenChance)) +
-      summaryRow('Dollar Value', t => t.dollarValue != null ? '$' + t.dollarValue.toFixed(2) : '—') +
-      summaryRow('Total Dollar Value', t => '$' + t.totalDollarValue.toFixed(2));
+    renderAnalyticsTable();
   } catch (e) {
     tbody.innerHTML = `<tr class="loading-row"><td class="text-danger">Error: ${esc(e.message)}</td></tr>`;
   }
+}
+
+function computeMemberAggregate(memberId, events, cells) {
+  const memberCells = cells[memberId] || {};
+  let applied = 0, attended = 0, totalValue = 0;
+  events.forEach(e => {
+    const status = memberCells[e.event_id];
+    if (!status) return;
+    applied++;
+    if (status === 'Attended') {
+      attended++;
+      if (e.dollar_value != null) totalValue += parseFloat(e.dollar_value);
+    }
+  });
+  return { applied, attended, totalValue };
+}
+
+function sortAnalytics(key) {
+  if (analyticsSortKey === key) analyticsSortDir *= -1;
+  else { analyticsSortKey = key; analyticsSortDir = -1; }
+  renderAnalyticsTable();
+}
+
+function sortArrow(key) {
+  if (analyticsSortKey !== key) return '';
+  return `<span class="sort-arrow">${analyticsSortDir === -1 ? '▼' : '▲'}</span>`;
+}
+
+function renderAnalyticsTable() {
+  const thead = document.getElementById('analytics-thead');
+  const tbody = document.getElementById('analytics-tbody');
+  const tfoot = document.getElementById('analytics-tfoot');
+  if (!analyticsData) return;
+  const { members, events, cells, totals } = analyticsData;
+
+  const colCount = analyticsFixedCols + events.length;
+  if (!members.length || !events.length) {
+    thead.innerHTML = '';
+    tbody.innerHTML = `<tr class="loading-row"><td colspan="${colCount}" style="color:var(--muted)">No data yet.</td></tr>`;
+    tfoot.innerHTML = '';
+    document.getElementById('analytics-averages').innerHTML = '';
+    return;
+  }
+
+  const rows = members.map(m => ({ member: m, agg: computeMemberAggregate(m.member_id, events, cells) }));
+  const sortFns = {
+    name:     (a, b) => a.member.full_name.localeCompare(b.member.full_name),
+    applied:  (a, b) => a.agg.applied - b.agg.applied,
+    attended: (a, b) => a.agg.attended - b.agg.attended,
+    value:    (a, b) => a.agg.totalValue - b.agg.totalValue,
+  };
+  if (analyticsSortKey && sortFns[analyticsSortKey]) {
+    rows.sort((a, b) => analyticsSortDir * sortFns[analyticsSortKey](a, b));
+  }
+
+  thead.innerHTML = `<tr>
+      <th class="col-resizable col-sortable" onclick="sortAnalytics('name')">Member${sortArrow('name')}</th>
+      <th class="col-resizable">Email</th>
+      <th class="col-resizable">Affiliation</th>
+      <th class="col-resizable">Year</th>
+      <th class="col-resizable col-sortable" onclick="sortAnalytics('applied')">Applied${sortArrow('applied')}</th>
+      <th class="col-resizable col-sortable" onclick="sortAnalytics('attended')">Attended${sortArrow('attended')}</th>
+      <th class="col-resizable col-sortable" onclick="sortAnalytics('value')">Total Value${sortArrow('value')}</th>
+      ${events.map(e => `<th class="col-resizable" style="white-space:nowrap;">${esc(e.name)}</th>`).join('')}
+    </tr>`;
+
+  tbody.innerHTML = rows.map(({ member: m, agg }) => `
+    <tr>
+      <td style="font-weight:600; white-space:nowrap;">${esc(m.full_name)}</td>
+      <td class="monospace">${esc(m.email)}</td>
+      <td>${esc(m.affiliation) || '—'}</td>
+      <td>${esc(m.school_year) || '—'}</td>
+      <td>${agg.applied}</td>
+      <td>${agg.attended}</td>
+      <td>$${agg.totalValue.toFixed(2)}</td>
+      ${events.map(e => {
+        const status = cells[m.member_id]?.[e.event_id];
+        return `<td>${status ? `<span class="badge badge-${status.toLowerCase()}">${esc(status)}</span>` : ''}</td>`;
+      }).join('')}
+    </tr>
+  `).join('');
+
+  const pct = v => Math.round(v * 100) + '%';
+  const summaryRow = (label, fn) => `
+    <tr>
+      <td colspan="${analyticsFixedCols}" style="font-weight:700;">${esc(label)}</td>
+      ${events.map(e => `<td style="font-weight:700;">${fn(totals[e.event_id])}</td>`).join('')}
+    </tr>`;
+  tfoot.innerHTML =
+    summaryRow('Applied', t => t.applied) +
+    summaryRow('Dropped', t => t.dropped) +
+    summaryRow('Flaked', t => t.flaked) +
+    summaryRow('Attended', t => t.attended) +
+    summaryRow('% Attended', t => pct(t.pctAttended)) +
+    summaryRow('# Given a Chance', t => t.givenChance) +
+    summaryRow('% Given a Chance', t => pct(t.pctGivenChance)) +
+    summaryRow('% Attended of Given a Chance', t => pct(t.pctAttendedOfGivenChance)) +
+    summaryRow('Dollar Value', t => t.dollarValue != null ? '$' + t.dollarValue.toFixed(2) : '—') +
+    summaryRow('Total Dollar Value', t => '$' + t.totalDollarValue.toFixed(2));
+
+  renderAnalyticsAverages(rows.map(r => r.agg));
+}
+
+function renderAnalyticsAverages(aggs) {
+  const el = document.getElementById('analytics-averages');
+  if (!aggs.length) { el.innerHTML = ''; return; }
+  const avg = arr => arr.reduce((a, b) => a + b, 0) / arr.length;
+  const avgApplied = avg(aggs.map(a => a.applied));
+  const avgAttended = avg(aggs.map(a => a.attended));
+  const avgValue = avg(aggs.map(a => a.totalValue));
+  const avgPctAttended = avgApplied ? avgAttended / avgApplied : 0;
+  el.innerHTML = `
+    <div class="stat-card"><div class="stat-value">${avgApplied.toFixed(1)}</div><div class="stat-label">Avg Applied / Member</div></div>
+    <div class="stat-card"><div class="stat-value">${avgAttended.toFixed(1)}</div><div class="stat-label">Avg Attended / Member</div></div>
+    <div class="stat-card"><div class="stat-value">${Math.round(avgPctAttended * 100)}%</div><div class="stat-label">Avg % Attended</div></div>
+    <div class="stat-card"><div class="stat-value">$${avgValue.toFixed(2)}</div><div class="stat-label">Avg Dollar Value / Member</div></div>
+  `;
 }
 
 function renderMemberHistory() {
@@ -2367,6 +2488,24 @@ function confirm(title, message, btnClass, onOk) {
   btn.className = `${btnClass}`;
   btn.onclick = () => { closeModal('modal-confirm'); onOk(); };
   openModal('modal-confirm');
+}
+
+// Same as confirm(), but for irreversible actions — the confirm button stays
+// disabled until the admin types "delete", so a stray click can't trigger it.
+function confirmWithTypedDelete(title, message, onOk) {
+  document.getElementById('modal-confirm-delete-title').textContent = title;
+  document.getElementById('modal-confirm-delete-message').textContent = message;
+  const input = document.getElementById('modal-confirm-delete-input');
+  input.value = '';
+  const btn = document.getElementById('modal-confirm-delete-ok');
+  btn.disabled = true;
+  btn.onclick = () => { closeModal('modal-confirm-delete'); onOk(); };
+  openModal('modal-confirm-delete');
+}
+
+function onConfirmDeleteInput() {
+  const typed = document.getElementById('modal-confirm-delete-input').value.trim().toLowerCase();
+  document.getElementById('modal-confirm-delete-ok').disabled = typed !== 'delete';
 }
 
 /* ── Toast ───────────────────────────────────────────────────────────────── */

@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS members (
   status          TEXT NOT NULL DEFAULT 'Active',   -- Active | Inactive | Blocked
   date_joined     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   notes           TEXT NOT NULL DEFAULT '',
+  exec_notes      TEXT NOT NULL DEFAULT '',         -- visible/editable by Exec Team only, enforced server-side
   partner_member_id TEXT REFERENCES members (member_id) ON DELETE SET NULL,
   school_year     TEXT NOT NULL DEFAULT '2026-27',  -- e.g. "2026-27"; membership is tracked per academic year
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -21,6 +22,7 @@ CREATE TABLE IF NOT EXISTS members (
 
 ALTER TABLE members ADD COLUMN IF NOT EXISTS partner_member_id TEXT REFERENCES members (member_id) ON DELETE SET NULL;
 ALTER TABLE members ADD COLUMN IF NOT EXISTS school_year TEXT NOT NULL DEFAULT '2026-27';
+ALTER TABLE members ADD COLUMN IF NOT EXISTS exec_notes TEXT NOT NULL DEFAULT '';
 
 -- `can_clear_fees` is being renamed/repurposed into the broader `is_exec_team`
 -- tier. Guarded so this only fires once, on a DB that still has the old name.

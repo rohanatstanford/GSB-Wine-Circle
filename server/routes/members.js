@@ -15,13 +15,14 @@ router.get('/', requireAuth, async (req, res) => {
     if (req.isAdmin) {
       const { rows } = await db.query(
         `SELECT m.member_id, m.email, m.full_name, m.affiliation, m.is_admin, m.is_exec_team,
-                m.fee_balance, m.status, m.date_joined, m.notes, m.school_year,
+                m.fee_balance, m.status, m.date_joined, m.notes, m.exec_notes, m.school_year,
                 m.partner_member_id, p.full_name AS partner_name
          FROM members m
          LEFT JOIN members p ON p.member_id = m.partner_member_id
          ORDER BY m.full_name`
       );
-      return res.json({ members: rows });
+      const members = req.member.is_exec_team ? rows : rows.map(({ exec_notes, ...rest }) => rest);
+      return res.json({ members });
     }
     // Non-admin: return only their own record
     const { rows } = await db.query(
@@ -86,12 +87,14 @@ router.get('/:id', requireAuth, async (req, res) => {
   try {
     const { rows } = await db.query(
       `SELECT member_id, email, full_name, affiliation, is_admin, is_exec_team,
-              fee_balance, status, date_joined, notes, school_year
+              fee_balance, status, date_joined, notes, exec_notes, school_year
        FROM members WHERE member_id = $1`,
       [id]
     );
     if (!rows.length) return res.status(404).json({ error: 'Member not found' });
-    return res.json({ member: rows[0] });
+    const member = rows[0];
+    if (!req.member.is_exec_team) delete member.exec_notes;
+    return res.json({ member });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Internal error' });
@@ -100,12 +103,15 @@ router.get('/:id', requireAuth, async (req, res) => {
 
 // POST /api/members — admin: create a new member
 router.post('/', requireAdmin, async (req, res) => {
-  const { email, full_name, affiliation, is_admin, is_exec_team, notes, school_year } = req.body;
+  const { email, full_name, affiliation, is_admin, is_exec_team, notes, school_year, exec_notes } = req.body;
   if (!email || !full_name) {
     return res.status(400).json({ error: 'email and full_name required' });
   }
   if ((is_admin || is_exec_team) && !req.member.is_exec_team) {
     return res.status(403).json({ error: 'Only Exec Team members can grant Admin or Exec Team privileges.' });
+  }
+  if (exec_notes !== undefined && !req.member.is_exec_team) {
+    return res.status(403).json({ error: 'Only Exec Team members can set exec notes.' });
   }
   const normalizedEmail = email.trim().toLowerCase();
 
@@ -127,10 +133,10 @@ router.post('/', requireAdmin, async (req, res) => {
 
     const memberId = 'm_' + uuidv4().replace(/-/g, '');
     const { rows } = await db.query(
-      `INSERT INTO members (member_id, email, full_name, affiliation, is_admin, is_exec_team, fee_balance, status, notes, school_year)
-       VALUES ($1, $2, $3, $4, $5, $6, 0, 'Active', $7, $8)
+      `INSERT INTO members (member_id, email, full_name, affiliation, is_admin, is_exec_team, fee_balance, status, notes, school_year, exec_notes)
+       VALUES ($1, $2, $3, $4, $5, $6, 0, 'Active', $7, $8, $9)
        RETURNING *`,
-      [memberId, normalizedEmail, full_name.trim(), affiliation || '', !!is_admin, !!is_exec_team, notes || '', year]
+      [memberId, normalizedEmail, full_name.trim(), affiliation || '', !!is_admin, !!is_exec_team, notes || '', year, exec_notes || '']
     );
     await audit(req.member.email, 'CreateMember', 'members', memberId, null, { email: normalizedEmail });
     return res.status(201).json({ member: rows[0] });
@@ -236,6 +242,13 @@ router.patch('/:id', requireAdmin, async (req, res) => {
     const allowed = ['full_name', 'affiliation', 'is_admin', 'is_exec_team', 'status', 'notes', 'school_year'];
     const updates = {};
     allowed.forEach(f => { if (req.body[f] !== undefined) updates[f] = req.body[f]; });
+
+    if (req.body.exec_notes !== undefined) {
+      if (!req.member.is_exec_team) {
+        return res.status(403).json({ error: 'Only Exec Team members can edit exec notes.' });
+      }
+      updates.exec_notes = req.body.exec_notes;
+    }
 
     if (!Object.keys(updates).length) {
       return res.status(400).json({ error: 'No valid fields to update' });
