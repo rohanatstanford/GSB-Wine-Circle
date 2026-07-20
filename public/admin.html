@@ -4,20 +4,22 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Wine Circle — Admin</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E%F0%9F%8D%B7%3C/text%3E%3C/svg%3E">
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=Caprasimo&family=Figtree:wght@400;500;600;700&display=swap');
     /* ── Reset & base ─────────────────────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
       --wine:      #7b1d36;
       --wine-dk:   #5a1427;
       --wine-lt:   #a3354f;
-      --gold:      #c9a84c;
-      --gold-lt:   #e8d5a3;
-      --bg:        #f7f4f1;
-      --surface:   #ffffff;
-      --border:    #e0d8d0;
-      --text:      #1e1410;
-      --muted:     #7a6b60;
+      --gold:      #7a8a5e;
+      --gold-lt:   #e1eecc;
+      --bg:        #f5ead8;
+      --surface:   #ebddc5;
+      --border:    #dcd3c4;
+      --text:      #201e1d;
+      --muted:     #746a5c;
       --danger:    #c0392b;
       --success:   #27ae60;
       --warning:   #e67e22;
@@ -26,8 +28,11 @@
       --header-h:  56px;
       --radius:    8px;
       --shadow:    0 1px 4px rgba(0,0,0,.10);
+      --font-heading: "Caprasimo", system-ui, sans-serif;
+      --font-body: "Figtree", system-ui, -apple-system, sans-serif;
     }
-    body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5; }
+    body { font-family: var(--font-body); background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5; }
+    h1, h2, h3 { font-family: var(--font-heading); font-weight: 400; }
     a { color: var(--wine); text-decoration: none; }
     a:hover { text-decoration: underline; }
     input, select, textarea {
@@ -42,7 +47,7 @@
     .btn-primary   { background: var(--wine);    color: #fff; }
     .btn-primary:hover:not(:disabled)   { background: var(--wine-dk); }
     .btn-secondary { background: var(--border);  color: var(--text); }
-    .btn-secondary:hover:not(:disabled) { background: #ccc8c2; }
+    .btn-secondary:hover:not(:disabled) { background: #d3c9b8; }
     .btn-danger    { background: var(--danger);  color: #fff; }
     .btn-danger:hover:not(:disabled)    { background: #a93226; }
     .btn-success   { background: var(--success); color: #fff; }
@@ -62,7 +67,7 @@
       padding: 40px 36px; width: 380px; max-width: 95vw;
     }
     .login-logo { text-align: center; margin-bottom: 28px; }
-    .login-logo h1 { color: var(--wine); font-size: 22px; font-weight: 700; }
+    .login-logo h1 { color: var(--wine); font-size: 22px; }
     .login-logo p  { color: var(--muted); font-size: 13px; margin-top: 4px; }
     .login-step { display: none; }
     .login-step.active { display: block; }
@@ -81,9 +86,9 @@
       position: fixed; top: 0; left: 0; right: 0; z-index: 100;
       box-shadow: 0 2px 8px rgba(0,0,0,.2);
     }
-    .app-header h1 { font-size: 16px; font-weight: 700; flex: 1; }
+    .app-header h1 { font-size: 16px; flex: 1; }
     .app-header .user-info { font-size: 12px; opacity: .85; }
-    .app-header .btn-logout { background: rgba(255,255,255,.15); color: #fff; font-size: 12px; padding: 5px 12px; }
+    .app-header .btn-logout { background: rgba(255,255,255,.15); color: #fff; font-size: 12px; padding: 5px 12px; border-radius: 999px; }
     .app-header .btn-logout:hover { background: rgba(255,255,255,.25); }
 
     /* Sidebar */
@@ -113,7 +118,7 @@
     .page { display: none; }
     .page.active { display: block; }
     .page-header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
-    .page-header h2 { font-size: 20px; font-weight: 700; color: var(--wine); flex: 1; }
+    .page-header h2 { font-size: 20px; color: var(--wine); flex: 1; }
     .page-header .actions { display: flex; gap: 8px; }
 
     /* ── Cards ────────────────────────────────────────────────────────────── */
@@ -182,7 +187,7 @@
       padding: 18px 20px; border-bottom: 1px solid var(--border);
       display: flex; align-items: center; gap: 10px;
     }
-    .modal-header h3 { font-size: 16px; font-weight: 700; flex: 1; }
+    .modal-header h3 { font-size: 16px; flex: 1; }
     .modal-close { background: none; border: none; font-size: 20px; color: var(--muted); cursor: pointer; padding: 0 4px; line-height: 1; }
     .modal-close:hover { color: var(--text); }
     .modal-body { padding: 20px; }
