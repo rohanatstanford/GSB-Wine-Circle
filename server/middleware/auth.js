@@ -1,5 +1,5 @@
 // Session middleware: resolves the bearer token to a member row.
-// Attaches req.member (or null) and req.isAdmin, req.canClearFees.
+// Attaches req.member (or null) and req.isAdmin, req.isExecTeam.
 const crypto = require('crypto');
 const db = require('../db');
 
@@ -14,7 +14,7 @@ function hashToken(token) {
 async function sessionMiddleware(req, res, next) {
   req.member = null;
   req.isAdmin = false;
-  req.canClearFees = false;
+  req.isExecTeam = false;
 
   let token =
     req.headers['x-session-token'] ||
@@ -27,7 +27,7 @@ async function sessionMiddleware(req, res, next) {
     const { rows } = await db.query(
       `SELECT s.member_id, s.expires_at,
               m.email, m.full_name, m.affiliation,
-              m.is_admin, m.can_clear_fees, m.fee_balance, m.status
+              m.is_admin, m.is_exec_team, m.fee_balance, m.status
        FROM auth_sessions s
        JOIN members m ON m.member_id = s.member_id
        WHERE s.token_hash = $1
@@ -42,12 +42,12 @@ async function sessionMiddleware(req, res, next) {
         full_name:      r.full_name,
         affiliation:    r.affiliation,
         is_admin:       r.is_admin,
-        can_clear_fees: r.can_clear_fees,
+        is_exec_team:   r.is_exec_team,
         fee_balance:    parseFloat(r.fee_balance) || 0,
         status:         r.status,
       };
       req.isAdmin = !!r.is_admin;
-      req.canClearFees = !!r.can_clear_fees;
+      req.isExecTeam = !!r.is_exec_team;
     }
   } catch (err) {
     console.error('Session resolution error:', err.message);
@@ -67,10 +67,10 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-function requireCanClearFees(req, res, next) {
+function requireExecTeam(req, res, next) {
   if (!req.member) return res.status(401).json({ error: 'Authentication required' });
-  if (!req.canClearFees) return res.status(403).json({ error: 'Fee-clearing permission required' });
+  if (!req.isExecTeam) return res.status(403).json({ error: 'Exec Team permission required' });
   next();
 }
 
-module.exports = { sessionMiddleware, requireAuth, requireAdmin, requireCanClearFees, hashToken };
+module.exports = { sessionMiddleware, requireAuth, requireAdmin, requireExecTeam, hashToken };

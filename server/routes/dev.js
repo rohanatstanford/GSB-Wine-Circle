@@ -42,7 +42,7 @@ router.post('/seed-members', requireAdmin, devGuard, async (req, res) => {
       if (existing.length) { created.push({ email, created: false }); continue; }
       const memberId = 'm_' + uuidv4().replace(/-/g, '');
       await client.query(
-        `INSERT INTO members (member_id, email, full_name, affiliation, is_admin, can_clear_fees, fee_balance, status, notes)
+        `INSERT INTO members (member_id, email, full_name, affiliation, is_admin, is_exec_team, fee_balance, status, notes)
          VALUES ($1, $2, $3, 'TestCohort', false, false, 0, 'Active', 'TEST')`,
         [memberId, email, `Test User ${pad}`]
       );

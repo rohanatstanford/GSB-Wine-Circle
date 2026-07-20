@@ -2,8 +2,9 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const db = require('../db');
-const { requireAuth, requireAdmin } = require('../middleware/auth');
+const { requireAuth, requireAdmin, requireExecTeam } = require('../middleware/auth');
 const { audit } = require('../services/audit');
+const { getSettings } = require('../services/email');
 const { promoteNextWaitlist } = require('../services/fees');
 
 const router = express.Router();
@@ -13,8 +14,8 @@ router.get('/', requireAuth, async (req, res) => {
   try {
     if (req.isAdmin) {
       const { rows } = await db.query(
-        `SELECT m.member_id, m.email, m.full_name, m.affiliation, m.is_admin, m.can_clear_fees,
-                m.fee_balance, m.status, m.date_joined, m.notes,
+        `SELECT m.member_id, m.email, m.full_name, m.affiliation, m.is_admin, m.is_exec_team,
+                m.fee_balance, m.status, m.date_joined, m.notes, m.school_year,
                 m.partner_member_id, p.full_name AS partner_name
          FROM members m
          LEFT JOIN members p ON p.member_id = m.partner_member_id
@@ -24,8 +25,8 @@ router.get('/', requireAuth, async (req, res) => {
     }
     // Non-admin: return only their own record
     const { rows } = await db.query(
-      `SELECT member_id, email, full_name, affiliation, is_admin, can_clear_fees,
-              fee_balance, status, date_joined
+      `SELECT member_id, email, full_name, affiliation, is_admin, is_exec_team,
+              fee_balance, status, date_joined, school_year
        FROM members WHERE member_id = $1`,
       [req.member.member_id]
     );
@@ -44,8 +45,8 @@ router.get('/:id', requireAuth, async (req, res) => {
   }
   try {
     const { rows } = await db.query(
-      `SELECT member_id, email, full_name, affiliation, is_admin, can_clear_fees,
-              fee_balance, status, date_joined, notes
+      `SELECT member_id, email, full_name, affiliation, is_admin, is_exec_team,
+              fee_balance, status, date_joined, notes, school_year
        FROM members WHERE member_id = $1`,
       [id]
     );
@@ -59,7 +60,7 @@ router.get('/:id', requireAuth, async (req, res) => {
 
 // POST /api/members — admin: create a new member
 router.post('/', requireAdmin, async (req, res) => {
-  const { email, full_name, affiliation, is_admin, can_clear_fees, notes } = req.body;
+  const { email, full_name, affiliation, is_admin, is_exec_team, notes, school_year } = req.body;
   if (!email || !full_name) {
     return res.status(400).json({ error: 'email and full_name required' });
   }
@@ -75,12 +76,18 @@ router.post('/', requireAdmin, async (req, res) => {
       return res.status(409).json({ error: 'A member with that email already exists' });
     }
 
+    let year = (school_year || '').trim();
+    if (!year) {
+      const settings = await getSettings();
+      year = settings.current_school_year || '2026-27';
+    }
+
     const memberId = 'm_' + uuidv4().replace(/-/g, '');
     const { rows } = await db.query(
-      `INSERT INTO members (member_id, email, full_name, affiliation, is_admin, can_clear_fees, fee_balance, status, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, 0, 'Active', $7)
+      `INSERT INTO members (member_id, email, full_name, affiliation, is_admin, is_exec_team, fee_balance, status, notes, school_year)
+       VALUES ($1, $2, $3, $4, $5, $6, 0, 'Active', $7, $8)
        RETURNING *`,
-      [memberId, normalizedEmail, full_name.trim(), affiliation || '', !!is_admin, !!can_clear_fees, notes || '']
+      [memberId, normalizedEmail, full_name.trim(), affiliation || '', !!is_admin, !!is_exec_team, notes || '', year]
     );
     await audit(req.member.email, 'CreateMember', 'members', memberId, null, { email: normalizedEmail });
     return res.status(201).json({ member: rows[0] });
@@ -91,13 +98,17 @@ router.post('/', requireAdmin, async (req, res) => {
 });
 
 // POST /api/members/bulk-import — admin: create members from a parsed roster
-// spreadsheet. Body: { rows: [{ email, first_name, last_name, affiliation, sponsor_email }] }
-// (parsing the pasted CSV/TSV happens client-side; this endpoint only handles
-// the domain logic: dedup, insert, and auto-linking SO/sponsor pairs as partners.)
+// spreadsheet. Body: { school_year, rows: [{ email, first_name, last_name, affiliation, sponsor_email }] }
+// (parsing the pasted/uploaded CSV/TSV happens client-side; this endpoint only
+// handles the domain logic: dedup, insert, and auto-linking SO/sponsor pairs as partners.)
 router.post('/bulk-import', requireAdmin, async (req, res) => {
-  const { rows } = req.body;
+  const { rows, school_year } = req.body;
   if (!Array.isArray(rows) || !rows.length) {
     return res.status(400).json({ error: 'rows required' });
+  }
+  const schoolYear = (school_year || '').trim();
+  if (!schoolYear) {
+    return res.status(400).json({ error: 'school_year is required' });
   }
 
   const results = { inserted: 0, skipped: [], linked: 0, errors: [] };
@@ -119,9 +130,9 @@ router.post('/bulk-import', requireAdmin, async (req, res) => {
       }
       const memberId = 'm_' + uuidv4().replace(/-/g, '');
       await db.query(
-        `INSERT INTO members (member_id, email, full_name, affiliation, fee_balance, status)
-         VALUES ($1, $2, $3, $4, 0, 'Active')`,
-        [memberId, email, fullName, (r.affiliation || '').trim()]
+        `INSERT INTO members (member_id, email, full_name, affiliation, fee_balance, status, school_year)
+         VALUES ($1, $2, $3, $4, 0, 'Active', $5)`,
+        [memberId, email, fullName, (r.affiliation || '').trim(), schoolYear]
       );
       memberIdByEmail.set(email, memberId);
       results.inserted++;
@@ -179,7 +190,7 @@ router.patch('/:id', requireAdmin, async (req, res) => {
     if (!existing.length) return res.status(404).json({ error: 'Member not found' });
     const old = existing[0];
 
-    const allowed = ['full_name', 'affiliation', 'is_admin', 'can_clear_fees', 'status', 'notes'];
+    const allowed = ['full_name', 'affiliation', 'is_admin', 'is_exec_team', 'status', 'notes', 'school_year'];
     const updates = {};
     allowed.forEach(f => { if (req.body[f] !== undefined) updates[f] = req.body[f]; });
 
@@ -196,6 +207,33 @@ router.patch('/:id', requireAdmin, async (req, res) => {
 
     await audit(req.member.email, 'UpdateMember', 'members', id, old, updates);
     return res.json({ member: rows[0] });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+// POST /api/members/bulk-delete — admin + Exec Team: permanently delete member
+// rows (and, via ON DELETE CASCADE, their signups and fee_ledger history).
+router.post('/bulk-delete', requireAdmin, async (req, res) => {
+  if (!req.member.is_exec_team) {
+    return res.status(403).json({ error: 'Exec Team permission required' });
+  }
+  const { member_ids } = req.body;
+  if (!Array.isArray(member_ids) || !member_ids.length) {
+    return res.status(400).json({ error: 'member_ids required' });
+  }
+  if (member_ids.includes(req.member.member_id)) {
+    return res.status(400).json({ error: "You can't delete your own account." });
+  }
+
+  try {
+    const { rows } = await db.query(
+      'DELETE FROM members WHERE member_id = ANY($1) RETURNING member_id, full_name, email',
+      [member_ids]
+    );
+    await audit(req.member.email, 'BulkDeleteMembers', 'members', '', { deleted: rows }, null);
+    return res.json({ ok: true, deleted: rows.length });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Internal error' });

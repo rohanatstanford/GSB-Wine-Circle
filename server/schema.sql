@@ -8,21 +8,34 @@ CREATE TABLE IF NOT EXISTS members (
   full_name       TEXT NOT NULL DEFAULT '',
   affiliation     TEXT NOT NULL DEFAULT '',
   is_admin        BOOLEAN NOT NULL DEFAULT FALSE,
-  can_clear_fees  BOOLEAN NOT NULL DEFAULT FALSE,
+  is_exec_team    BOOLEAN NOT NULL DEFAULT FALSE,   -- highest privilege tier: fee-clearing + bulk member delete
   fee_balance     NUMERIC(10,2) NOT NULL DEFAULT 0,
   status          TEXT NOT NULL DEFAULT 'Active',   -- Active | Inactive | Blocked
   date_joined     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   notes           TEXT NOT NULL DEFAULT '',
   partner_member_id TEXT REFERENCES members (member_id) ON DELETE SET NULL,
+  school_year     TEXT NOT NULL DEFAULT '2026-27',  -- e.g. "2026-27"; membership is tracked per academic year
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 ALTER TABLE members ADD COLUMN IF NOT EXISTS partner_member_id TEXT REFERENCES members (member_id) ON DELETE SET NULL;
+ALTER TABLE members ADD COLUMN IF NOT EXISTS school_year TEXT NOT NULL DEFAULT '2026-27';
+
+-- `can_clear_fees` is being renamed/repurposed into the broader `is_exec_team`
+-- tier. Guarded so this only fires once, on a DB that still has the old name.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'members' AND column_name = 'can_clear_fees')
+     AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'members' AND column_name = 'is_exec_team') THEN
+    ALTER TABLE members RENAME COLUMN can_clear_fees TO is_exec_team;
+  END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_members_email  ON members (LOWER(email));
 CREATE INDEX IF NOT EXISTS idx_members_status ON members (status);
 CREATE INDEX IF NOT EXISTS idx_members_partner_id ON members (partner_member_id);
+CREATE INDEX IF NOT EXISTS idx_members_school_year ON members (school_year);
 
 -- ── Events ───────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS events (
@@ -40,9 +53,14 @@ CREATE TABLE IF NOT EXISTS events (
   description               TEXT NOT NULL DEFAULT '',
   host_notes                TEXT NOT NULL DEFAULT '',
   created_by                TEXT NOT NULL DEFAULT '',
+  finalized_at              TIMESTAMPTZ,
+  rolled_back_at            TIMESTAMPTZ, -- set when an admin undoes a finalize; cleared on the next finalize
   created_at                TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at                TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE events ADD COLUMN IF NOT EXISTS finalized_at TIMESTAMPTZ;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS rolled_back_at TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS idx_events_status     ON events (status);
 CREATE INDEX IF NOT EXISTS idx_events_event_date ON events (event_date);
@@ -70,12 +88,18 @@ CREATE TABLE IF NOT EXISTS signups (
   attended_marked_at  TIMESTAMPTZ,
   marked_by           TEXT NOT NULL DEFAULT '',
   notes               TEXT NOT NULL DEFAULT '',
+  -- Set to the pre-finalize status ('Invited' or 'Waitlist') only for signups
+  -- that THIS finalize run changed to Flaked/Lost; NULL otherwise. Lets an
+  -- unfinalize roll back exactly (and only) what the last finalize touched,
+  -- without also reverting unrelated Flaked statuses from late self-declines.
+  finalized_from      TEXT,
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (event_id, member_id)
 );
 
 ALTER TABLE signups ADD COLUMN IF NOT EXISTS member_visible_status TEXT NOT NULL DEFAULT 'Pending';
+ALTER TABLE signups ADD COLUMN IF NOT EXISTS finalized_from TEXT;
 -- Backfill: existing rows should show as already-synced, not as a sudden
 -- backlog of "pending push" the moment this ships.
 UPDATE signups SET member_visible_status = status WHERE member_visible_status != status;

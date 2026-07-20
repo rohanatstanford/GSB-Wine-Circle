@@ -101,7 +101,7 @@ router.post('/verify-code', async (req, res) => {
 
     // Look up member
     const { rows: memberRows } = await client.query(
-      `SELECT member_id, email, full_name, affiliation, is_admin, can_clear_fees, fee_balance, status
+      `SELECT member_id, email, full_name, affiliation, is_admin, is_exec_team, fee_balance, status
        FROM members WHERE LOWER(email) = $1`,
       [email]
     );
@@ -167,7 +167,7 @@ function publicMember(m) {
     full_name:      m.full_name,
     affiliation:    m.affiliation,
     is_admin:       !!m.is_admin,
-    can_clear_fees: !!m.can_clear_fees,
+    is_exec_team:   !!m.is_exec_team,
     fee_balance:    parseFloat(m.fee_balance) || 0,
     status:         m.status,
   };

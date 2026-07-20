@@ -14,5 +14,6 @@ INSERT INTO settings (key, value, description) VALUES
   ('default_auto_invite_enabled',     'TRUE',                                                            'Default for new events: auto-promote from waitlist on drop'),
   ('default_send_lottery_lost_emails','TRUE',                                                            'Default for new events: send "you didn''t make it" emails'),
   ('web_app_url',                     '',                                                                'Set after deploy: the base URL of the web app'),
-  ('dev_mode_enabled',                'FALSE',                                                           'TESTING ONLY: when TRUE, unlocks dev endpoints. Set to FALSE before going live.')
+  ('dev_mode_enabled',                'FALSE',                                                           'TESTING ONLY: when TRUE, unlocks dev endpoints. Set to FALSE before going live.'),
+  ('current_school_year',             '2026-27',                                                         'Default school year applied to new members and bulk imports — update each fall')
 ON CONFLICT (key) DO NOTHING;

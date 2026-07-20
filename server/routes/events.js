@@ -4,7 +4,7 @@ const { v4: uuidv4 } = require('uuid');
 const db = require('../db');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { audit } = require('../services/audit');
-const { getSettings } = require('../services/email');
+const { getSettings, emailFlakeNotice, emailAttendanceCorrected } = require('../services/email');
 const { recomputeBalance } = require('../services/fees');
 const {
   assignLotteryResults,
@@ -231,6 +231,9 @@ router.post('/:id/finalize', requireAdmin, async (req, res) => {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Event already finalized' });
     }
+    // Captured before we clear it below — decides whether this run is a
+    // correction re-finalize (only then do we email anyone).
+    const isRefinalize = !!event.rolled_back_at;
 
     const settings = await getSettings();
     const feeAmount = parseFloat(settings.flake_fee_amount) || 30;
@@ -246,7 +249,7 @@ router.post('/:id/finalize', requireAdmin, async (req, res) => {
 
     for (const s of toFlake) {
       await client.query(
-        `UPDATE signups SET status = 'Flaked' WHERE signup_id = $1`, [s.signup_id]
+        `UPDATE signups SET status = 'Flaked', finalized_from = 'Invited' WHERE signup_id = $1`, [s.signup_id]
       );
       // Charge flake fee
       const ledgerId = 'l_' + uuidv4().replace(/-/g, '');
@@ -263,27 +266,151 @@ router.post('/:id/finalize', requireAdmin, async (req, res) => {
     const lostIds = toLose.map(s => s.signup_id);
     if (lostIds.length) {
       await client.query(
-        `UPDATE signups SET status = 'Lost' WHERE signup_id = ANY($1)`, [lostIds]
+        `UPDATE signups SET status = 'Lost', finalized_from = 'Waitlist' WHERE signup_id = ANY($1)`, [lostIds]
       );
     }
     const waitlisted = toLose; // alias for audit count below
 
+    // Members whose attendance mark changed since the rollback — the only
+    // ones a re-finalize will email, and only if this really is a re-finalize.
+    let correctedSignups = [];
+    if (isRefinalize) {
+      const { rows } = await client.query(
+        `SELECT s.signup_id, s.status, m.email AS member_email, m.full_name AS member_name
+         FROM signups s JOIN members m ON m.member_id = s.member_id
+         WHERE s.event_id = $1 AND s.attended_marked_at > $2`,
+        [id, event.rolled_back_at]
+      );
+      correctedSignups = rows;
+    }
+
     await client.query(
-      `UPDATE events SET status = 'Completed' WHERE event_id = $1`, [id]
+      `UPDATE events SET status = 'Completed', finalized_at = NOW(), rolled_back_at = NULL WHERE event_id = $1`, [id]
     );
 
     await client.query('COMMIT');
 
-    await audit(req.member.email, 'FinalizeEvent', 'events', id, null,
-      { flaked: toFlake.length, lost: waitlisted.length });
+    if (correctedSignups.length) {
+      for (const s of correctedSignups) {
+        const member = { email: s.member_email, full_name: s.member_name };
+        if (s.status === 'Flaked') {
+          emailFlakeNotice(member, event, feeAmount, settings)
+            .catch(e => console.error('Flake notice error:', e.message));
+        } else if (s.status === 'Attended') {
+          emailAttendanceCorrected(member, event, 'Attended', feeAmount, settings)
+            .catch(e => console.error('Attendance-corrected email error:', e.message));
+        } else if (s.status === 'Lost') {
+          emailAttendanceCorrected(member, event, 'Lost', null, settings)
+            .catch(e => console.error('Attendance-corrected email error:', e.message));
+        }
+      }
+    }
 
-    return res.json({ ok: true, flaked: toFlake.length, lost: waitlisted.length });
+    await audit(req.member.email, 'FinalizeEvent', 'events', id, null,
+      { flaked: toFlake.length, lost: waitlisted.length, refinalize: isRefinalize, corrected: correctedSignups.length });
+
+    return res.json({ ok: true, flaked: toFlake.length, lost: waitlisted.length, corrected: correctedSignups.length });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error(err);
     res.status(500).json({ error: 'Internal error' });
   } finally {
     client.release();
+  }
+});
+
+// POST /api/events/:id/unfinalize — admin: undo a finalize to fix an
+// attendance-taking mistake. Restores exactly the signups the last finalize
+// touched (via finalized_from), reverses any flake charges it caused with a
+// Waiver ledger entry (never deletes the charge — preserves the audit trail),
+// and reverts the event back to Lotteried so attendance can be corrected and
+// finalize run again.
+router.post('/:id/unfinalize', requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows: evRows } = await client.query(
+      'SELECT * FROM events WHERE event_id = $1 FOR UPDATE', [id]
+    );
+    if (!evRows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Event not found' }); }
+    const event = evRows[0];
+    if (event.status !== 'Completed') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Event is not finalized' });
+    }
+
+    const { rows: touched } = await client.query(
+      `SELECT signup_id, member_id, finalized_from FROM signups
+       WHERE event_id = $1 AND finalized_from IS NOT NULL FOR UPDATE`,
+      [id]
+    );
+
+    let waived = 0;
+    for (const s of touched) {
+      if (s.finalized_from === 'Invited') {
+        // Reverse the flake charge this finalize created, if not already reversed.
+        const { rows: charges } = await client.query(
+          `SELECT ledger_id, amount FROM fee_ledger
+           WHERE member_id = $1 AND event_id = $2 AND type = 'Charge' AND notes LIKE 'Flake at event %'
+           ORDER BY occurred_at DESC LIMIT 1`,
+          [s.member_id, id]
+        );
+        if (charges.length) {
+          const ledgerId = 'l_' + uuidv4().replace(/-/g, '');
+          await client.query(
+            `INSERT INTO fee_ledger (ledger_id, member_id, event_id, event_name, type, amount, recorded_by, notes)
+             VALUES ($1, $2, $3, $4, 'Waiver', $5, $6, $7)`,
+            [ledgerId, s.member_id, id, event.name, charges[0].amount, req.member.email,
+             `Waived: finalize rolled back for attendance correction at "${event.name}"`]
+          );
+          await recomputeBalance(client, s.member_id);
+          waived++;
+        }
+      }
+      await client.query(
+        `UPDATE signups SET status = $1, finalized_from = NULL WHERE signup_id = $2`,
+        [s.finalized_from, s.signup_id]
+      );
+    }
+
+    await client.query(
+      `UPDATE events SET status = 'Lotteried', finalized_at = NULL, rolled_back_at = NOW() WHERE event_id = $1`,
+      [id]
+    );
+
+    await client.query('COMMIT');
+
+    await audit(req.member.email, 'UnfinalizeEvent', 'events', id, null,
+      { restored: touched.length, waived });
+
+    return res.json({ ok: true, restored: touched.length, waived });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error(err);
+    res.status(500).json({ error: 'Internal error' });
+  } finally {
+    client.release();
+  }
+});
+
+// POST /api/events/:id/delete — admin + Exec Team: permanently delete an
+// event (and, via ON DELETE CASCADE, its signups). fee_ledger rows are not
+// linked by foreign key, so financial history for past charges survives.
+router.post('/:id/delete', requireAdmin, async (req, res) => {
+  if (!req.member.is_exec_team) {
+    return res.status(403).json({ error: 'Exec Team permission required' });
+  }
+  const { id } = req.params;
+  try {
+    const { rows } = await db.query('DELETE FROM events WHERE event_id = $1 RETURNING name', [id]);
+    if (!rows.length) return res.status(404).json({ error: 'Event not found' });
+    await audit(req.member.email, 'DeleteEvent', 'events', id, { name: rows[0].name }, null);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal error' });
   }
 });
 

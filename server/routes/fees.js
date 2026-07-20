@@ -2,7 +2,7 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const db = require('../db');
-const { requireAuth, requireAdmin, requireCanClearFees } = require('../middleware/auth');
+const { requireAuth, requireAdmin, requireExecTeam } = require('../middleware/auth');
 const { audit } = require('../services/audit');
 const { emailFeePaidConfirm, getSettings } = require('../services/email');
 const { recomputeBalance } = require('../services/fees');
@@ -114,8 +114,8 @@ router.get('/outstanding', requireAdmin, async (req, res) => {
   }
 });
 
-// POST /api/fees/payment — admin (can_clear_fees): record a payment
-router.post('/payment', requireCanClearFees, async (req, res) => {
+// POST /api/fees/payment — admin (Exec Team): record a payment
+router.post('/payment', requireExecTeam, async (req, res) => {
   const { member_id, amount, epay_reference, notes } = req.body;
   if (!member_id || !amount) return res.status(400).json({ error: 'member_id and amount required' });
 
@@ -160,8 +160,8 @@ router.post('/payment', requireCanClearFees, async (req, res) => {
   }
 });
 
-// POST /api/fees/waiver — admin (can_clear_fees): record a waiver
-router.post('/waiver', requireCanClearFees, async (req, res) => {
+// POST /api/fees/waiver — admin (Exec Team): record a waiver
+router.post('/waiver', requireExecTeam, async (req, res) => {
   const { member_id, amount, notes } = req.body;
   if (!member_id || !amount) return res.status(400).json({ error: 'member_id and amount required' });
 

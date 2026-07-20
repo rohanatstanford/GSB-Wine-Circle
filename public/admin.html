@@ -412,9 +412,11 @@
           <button class="btn-secondary btn-sm" id="btn-send-lost"      onclick="eventAction('send-lost')">Send Lost Emails</button>
           <button class="btn-primary   btn-sm" id="btn-push-updates"   onclick="eventAction('push-updates')">Push Portal Updates</button>
           <button class="btn-success   btn-sm" id="btn-finalize"       onclick="eventAction('finalize')">Finalize Event</button>
+          <button class="btn-secondary btn-sm" id="btn-unfinalize"     onclick="eventAction('unfinalize')">Roll Back Finalize</button>
           <button class="btn-danger    btn-sm" id="btn-cancel-event"   onclick="eventAction('cancel')">Cancel Event</button>
           <button class="btn-secondary btn-sm"                         onclick="openEditEvent()">Edit Details</button>
           <button class="btn-secondary btn-sm"                         onclick="downloadAttendeesCsv()">Export Attendees (CSV)</button>
+          <button class="btn-danger    btn-sm" id="btn-delete-event"   style="display:none;" onclick="deleteEvent()">Delete Event</button>
         </div>
 
         <!-- Toggle settings -->
@@ -488,14 +490,21 @@
             <option value="Inactive">Inactive</option>
             <option value="Blocked">Blocked</option>
           </select>
+          <select id="members-year-filter" onchange="filterMembers()">
+            <option value="">All Years</option>
+          </select>
+          <div class="spacer"></div>
+          <button class="btn-danger btn-sm" id="btn-delete-selected-members" style="display:none;" onclick="deleteSelectedMembers()">Delete Selected</button>
         </div>
         <div class="card table-wrap">
           <table>
             <thead>
               <tr>
+                <th><input type="checkbox" id="members-select-all" onchange="toggleSelectAllMembers(this.checked)" /></th>
                 <th>Name</th>
                 <th>Email</th>
                 <th>Affiliation</th>
+                <th>Year</th>
                 <th>Partner</th>
                 <th>Status</th>
                 <th>Roles</th>
@@ -505,7 +514,7 @@
               </tr>
             </thead>
             <tbody id="members-tbody">
-              <tr class="loading-row"><td colspan="9"><span class="spinner"></span> Loading…</td></tr>
+              <tr class="loading-row"><td colspan="11"><span class="spinner"></span> Loading…</td></tr>
             </tbody>
           </table>
         </div>
@@ -662,6 +671,12 @@
           </select>
         </div>
       </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="m-school-year">School Year</label>
+          <input type="text" id="m-school-year" placeholder="2026-27" />
+        </div>
+      </div>
       <div class="form-group">
         <label for="m-notes">Notes</label>
         <textarea id="m-notes" rows="2"></textarea>
@@ -681,8 +696,8 @@
           <span>Admin (can manage events, members, and fees)</span>
         </label>
         <label class="form-check">
-          <input type="checkbox" id="m-can-clear-fees" />
-          <span>Can Clear Fees (can record payments and waivers)</span>
+          <input type="checkbox" id="m-exec-team" />
+          <span>Exec Team (highest privileges: payments, waivers, bulk delete)</span>
         </label>
       </div>
     </div>
@@ -702,11 +717,19 @@
     </div>
     <div class="modal-body">
       <div id="modal-bulk-members-alert"></div>
+      <div class="form-group">
+        <label for="bulk-members-school-year">School Year *</label>
+        <input type="text" id="bulk-members-school-year" placeholder="2026-27" />
+      </div>
       <p class="text-muted" style="font-size:13px;margin-bottom:10px;">
-        Paste rows copied straight from the roster spreadsheet (including the header row).
-        Columns are matched by name — "Email Address", "...GSB Affiliation...", "First name",
-        "Last name", and "...sponsoring student..." — extra columns are ignored.
+        Paste rows copied straight from the roster spreadsheet, or upload a CSV/TSV file
+        (including the header row either way). Columns are matched by name — "Email Address",
+        "...GSB Affiliation...", "First name", "Last name", and "...sponsoring student..." —
+        extra columns are ignored.
       </p>
+      <div class="form-group">
+        <input type="file" id="bulk-members-file" accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values,text/plain" onchange="onBulkMembersFileChosen(event)" />
+      </div>
       <div class="form-group">
         <textarea id="bulk-members-input" rows="10" style="font-family:monospace;font-size:12px;" placeholder="Email Address&#9;...GSB Affiliation...&#9;First name&#9;Last name&#9;...sponsoring student...&#10;jane@stanford.edu&#9;MBA 1&#9;Jane&#9;Doe&#9;"></textarea>
       </div>
@@ -853,6 +876,7 @@ let currentMember = null;
 let currentPage = 'events';
 let currentEventId = null;
 let allMembers = []; // for client-side filter
+let currentSettings = {}; // key -> value, loaded once on app start
 let auditPage = 1, emailLogPage = 1, ledgerPage = 1;
 const PAGE_SIZE = 30;
 
@@ -897,6 +921,9 @@ function showApp() {
   document.getElementById('screen-login').style.display = 'none';
   document.getElementById('app').classList.add('ready');
   document.getElementById('header-user').textContent = currentMember.full_name || currentMember.email;
+  api('GET', '/settings').then(res => {
+    (res.settings || res || []).forEach(s => { currentSettings[s.key] = s.value; });
+  }).catch(() => {});
   nav('events');
 }
 
@@ -1062,6 +1089,7 @@ async function openEventDetail(eventId) {
 
     document.getElementById('toggle-auto-invite').checked = !!ev.auto_invite_enabled;
     document.getElementById('toggle-lost-emails').checked = !!ev.send_lottery_lost_emails;
+    document.getElementById('btn-delete-event').style.display = currentMember?.is_exec_team ? '' : 'none';
 
     await loadEventSignups(eventId);
   } catch (e) {
@@ -1181,6 +1209,7 @@ async function eventAction(action) {
     'send-lost':    ['Send Lost Emails', 'Send "lottery lost" emails to all Lost members?', 'btn-secondary'],
     'push-updates': ['Push Portal Updates', 'Push every status change on this event to members\' portals? Anyone with a "Pending Push" row will see their new status immediately.', 'btn-primary'],
     'finalize':     ['Finalize Event', 'Finalize this event? This will mark non-attending invited members as Flaked and charge flake fees.', 'btn-danger'],
+    'unfinalize':   ['Roll Back Finalize', 'Undo finalizing this event? This reverses any flake fees it charged (via a waiver, not a deletion) and puts the event back to Lotteried so you can fix attendance and re-finalize.', 'btn-danger'],
     'cancel':       ['Cancel Event', 'Cancel this event?', 'btn-danger'],
   };
   const [title, message, btnClass] = confirmMap[action] || ['Confirm', 'Are you sure?', 'btn-danger'];
@@ -1212,7 +1241,11 @@ async function eventAction(action) {
         toast('Signups closed', 'success');
       } else if (action === 'finalize') {
         result = await api('POST', `/events/${ev}/finalize`);
-        toast(`Event finalized. ${result.flaked ?? 0} flake(s) recorded.`, 'success');
+        toast(`Event finalized. ${result.flaked ?? 0} flake(s) recorded.` +
+          (result.corrected ? ` Emailed ${result.corrected} member(s) whose attendance was corrected.` : ''), 'success');
+      } else if (action === 'unfinalize') {
+        result = await api('POST', `/events/${ev}/unfinalize`);
+        toast(`Rolled back. Restored ${result.restored ?? 0} signup(s), waived ${result.waived ?? 0} flake fee(s).`, 'success');
       } else if (action === 'cancel') {
         await api('POST', `/events/${ev}/cancel`);
         toast('Event cancelled', 'success');
@@ -1250,6 +1283,25 @@ async function openCalendarInvite() {
   } catch (e) {
     toast('Error: ' + e.message, 'error');
   }
+}
+
+async function deleteEvent() {
+  if (!currentMember?.is_exec_team) return;
+  const name = document.getElementById('event-detail-name').textContent || 'this event';
+  confirm(
+    'Delete Event',
+    `Permanently delete "${name}"? This deletes all of its signups too and cannot be undone. Fee ledger history is kept.`,
+    'btn-danger',
+    async () => {
+      try {
+        await api('POST', `/events/${currentEventId}/delete`);
+        toast('Event deleted', 'success');
+        nav('events');
+      } catch (e) {
+        toast('Error: ' + e.message, 'error');
+      }
+    }
+  );
 }
 
 async function downloadAttendeesCsv() {
@@ -1361,16 +1413,28 @@ async function saveEvent() {
 }
 
 /* ── Members ─────────────────────────────────────────────────────────────── */
+let selectedMemberIds = new Set();
+
 async function loadMembers() {
   const tbody = document.getElementById('members-tbody');
-  tbody.innerHTML = '<tr class="loading-row"><td colspan="9"><span class="spinner"></span> Loading…</td></tr>';
+  tbody.innerHTML = '<tr class="loading-row"><td colspan="11"><span class="spinner"></span> Loading…</td></tr>';
   try {
     const membersRes = await api('GET', '/members');
     allMembers = membersRes.members || membersRes;
+    selectedMemberIds = new Set();
+    populateYearFilter();
     renderMembers();
   } catch (e) {
-    tbody.innerHTML = `<tr class="loading-row"><td colspan="9" class="text-danger">Error: ${esc(e.message)}</td></tr>`;
+    tbody.innerHTML = `<tr class="loading-row"><td colspan="11" class="text-danger">Error: ${esc(e.message)}</td></tr>`;
   }
+}
+
+function populateYearFilter() {
+  const sel = document.getElementById('members-year-filter');
+  const current = sel.value;
+  const years = [...new Set(allMembers.map(m => m.school_year).filter(Boolean))].sort().reverse();
+  sel.innerHTML = '<option value="">All Years</option>' + years.map(y => `<option value="${esc(y)}">${esc(y)}</option>`).join('');
+  sel.value = years.includes(current) ? current : '';
 }
 
 function filterMembers() {
@@ -1380,24 +1444,32 @@ function filterMembers() {
 function renderMembers() {
   const search = (document.getElementById('members-search')?.value || '').toLowerCase();
   const status = document.getElementById('members-status-filter')?.value || '';
+  const year   = document.getElementById('members-year-filter')?.value || '';
   const tbody  = document.getElementById('members-tbody');
+  const isExec = !!currentMember?.is_exec_team;
+  document.getElementById('btn-delete-selected-members').style.display = isExec ? '' : 'none';
+  document.getElementById('members-select-all').style.visibility = isExec ? 'visible' : 'hidden';
+
   let list = allMembers;
   if (search) list = list.filter(m => (m.full_name + m.email).toLowerCase().includes(search));
   if (status) list = list.filter(m => m.status === status);
+  if (year) list = list.filter(m => m.school_year === year);
   if (!list.length) {
-    tbody.innerHTML = '<tr class="loading-row"><td colspan="9" style="color:var(--muted)">No members found.</td></tr>';
+    tbody.innerHTML = '<tr class="loading-row"><td colspan="11" style="color:var(--muted)">No members found.</td></tr>';
     return;
   }
   tbody.innerHTML = list.map(m => `
     <tr>
+      <td><input type="checkbox" class="member-select" value="${m.member_id}" style="visibility:${isExec ? 'visible' : 'hidden'}" ${selectedMemberIds.has(m.member_id) ? 'checked' : ''} onchange="onMemberCheckboxChange('${m.member_id}', this.checked)" /></td>
       <td style="font-weight:600">${esc(m.full_name)}</td>
       <td class="monospace">${esc(m.email)}</td>
       <td>${esc(m.affiliation) || '<span class="text-muted">—</span>'}</td>
+      <td>${esc(m.school_year) || '<span class="text-muted">—</span>'}</td>
       <td>${m.partner_name ? esc(m.partner_name) : '<span class="text-muted">—</span>'}</td>
       <td><span class="badge badge-${m.status.toLowerCase()}">${m.status}</span></td>
       <td>
         ${m.is_admin ? '<span class="badge badge-admin">Admin</span> ' : ''}
-        ${m.can_clear_fees ? '<span class="badge badge-waiver">Fees</span>' : ''}
+        ${m.is_exec_team ? '<span class="badge badge-waiver">Exec</span>' : ''}
       </td>
       <td class="${m.fee_balance > 0 ? 'fee-balance-positive' : ''}">
         ${m.fee_balance > 0 ? '$' + parseFloat(m.fee_balance).toFixed(2) : '<span class="text-muted">$0.00</span>'}
@@ -1406,12 +1478,46 @@ function renderMembers() {
       <td>
         <div class="td-actions">
           <button class="btn-secondary btn-sm" onclick="openEditMember('${m.member_id}')">Edit</button>
-          ${m.fee_balance > 0 && currentMember?.can_clear_fees ? `<button class="btn-success btn-sm" onclick="openPayment('${m.member_id}', '${esc(m.full_name)}', ${m.fee_balance})">Pay</button>` : ''}
+          ${m.fee_balance > 0 && currentMember?.is_exec_team ? `<button class="btn-success btn-sm" onclick="openPayment('${m.member_id}', '${esc(m.full_name)}', ${m.fee_balance})">Pay</button>` : ''}
           ${m.status !== 'Inactive' ? `<button class="btn-danger btn-sm" onclick="deactivateMember('${m.member_id}', '${esc(m.full_name)}')">Deactivate</button>` : ''}
         </div>
       </td>
     </tr>
   `).join('');
+}
+
+function onMemberCheckboxChange(memberId, checked) {
+  if (checked) selectedMemberIds.add(memberId);
+  else selectedMemberIds.delete(memberId);
+}
+
+function toggleSelectAllMembers(checked) {
+  document.querySelectorAll('#members-tbody .member-select').forEach(cb => {
+    cb.checked = checked;
+    onMemberCheckboxChange(cb.value, checked);
+  });
+}
+
+async function deleteSelectedMembers() {
+  if (!currentMember?.is_exec_team) return;
+  const ids = [...selectedMemberIds];
+  if (!ids.length) return toast('No members selected.', 'error');
+  const names = allMembers.filter(m => ids.includes(m.member_id)).map(m => m.full_name);
+  confirm(
+    'Delete Members',
+    `Permanently delete ${ids.length} member(s) — ${names.join(', ')}? This cannot be undone: their entire signup and fee history will be deleted too.`,
+    'btn-danger',
+    async () => {
+      try {
+        const result = await api('POST', '/members/bulk-delete', { member_ids: ids });
+        toast(`Deleted ${result.deleted ?? ids.length} member(s)`, 'success');
+        selectedMemberIds = new Set();
+        await loadMembers();
+      } catch (e) {
+        toast('Error: ' + e.message, 'error');
+      }
+    }
+  );
 }
 
 let editingMemberId = null;
@@ -1422,9 +1528,10 @@ function openAddMember() {
   document.getElementById('modal-member-submit').textContent = 'Add Member';
   clearAlert('modal-member-alert');
   ['m-full-name','m-email','m-affiliation','m-notes'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('m-school-year').value = currentSettings?.current_school_year || '';
   document.getElementById('m-status').value = 'Active';
   document.getElementById('m-is-admin').checked = false;
-  document.getElementById('m-can-clear-fees').checked = false;
+  document.getElementById('m-exec-team').checked = false;
   document.getElementById('m-partner-section').style.display = 'none';
   openModal('modal-member');
 }
@@ -1439,10 +1546,11 @@ function openEditMember(memberId) {
   document.getElementById('m-full-name').value = m.full_name || '';
   document.getElementById('m-email').value = m.email || '';
   document.getElementById('m-affiliation').value = m.affiliation || '';
+  document.getElementById('m-school-year').value = m.school_year || '';
   document.getElementById('m-status').value = m.status || 'Active';
   document.getElementById('m-notes').value = m.notes || '';
   document.getElementById('m-is-admin').checked = !!m.is_admin;
-  document.getElementById('m-can-clear-fees').checked = !!m.can_clear_fees;
+  document.getElementById('m-exec-team').checked = !!m.is_exec_team;
   document.getElementById('m-partner-section').style.display = '';
   populatePartnerSelect(m);
   openModal('modal-member');
@@ -1484,9 +1592,20 @@ async function unlinkPartner() {
 
 function openBulkAddMembers() {
   clearAlert('modal-bulk-members-alert');
+  document.getElementById('bulk-members-school-year').value = currentSettings?.current_school_year || '';
   document.getElementById('bulk-members-input').value = '';
+  document.getElementById('bulk-members-file').value = '';
   document.getElementById('bulk-members-results').innerHTML = '';
   openModal('modal-bulk-members');
+}
+
+function onBulkMembersFileChosen(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => { document.getElementById('bulk-members-input').value = reader.result; };
+  reader.onerror = () => showAlert('modal-bulk-members-alert', 'Could not read that file.', 'error');
+  reader.readAsText(file);
 }
 
 // Splits one CSV line into fields, honoring double-quoted fields that may
@@ -1548,9 +1667,12 @@ function parseBulkMembersInput(raw) {
 }
 
 async function submitBulkAddMembers() {
+  const schoolYear = document.getElementById('bulk-members-school-year').value.trim();
   const raw = document.getElementById('bulk-members-input').value;
   clearAlert('modal-bulk-members-alert');
   document.getElementById('bulk-members-results').innerHTML = '';
+
+  if (!schoolYear) return showAlert('modal-bulk-members-alert', 'School Year is required.', 'error');
 
   let rows;
   try {
@@ -1563,7 +1685,7 @@ async function submitBulkAddMembers() {
   const btn = document.getElementById('modal-bulk-members-submit');
   btn.disabled = true;
   try {
-    const result = await api('POST', '/members/bulk-import', { rows });
+    const result = await api('POST', '/members/bulk-import', { rows, school_year: schoolYear });
     document.getElementById('bulk-members-results').innerHTML = `
       <div class="alert alert-success">
         Added ${result.inserted} member(s)${result.linked ? `, linked ${result.linked} partner pair(s)` : ''}.
@@ -1584,13 +1706,14 @@ async function saveMember() {
   const email = document.getElementById('m-email').value.trim();
   if (!name || !email) return showAlert('modal-member-alert', 'Name and email are required.', 'error');
   const payload = {
-    full_name:     name,
+    full_name:    name,
     email,
-    affiliation:   document.getElementById('m-affiliation').value.trim(),
-    status:        document.getElementById('m-status').value,
-    notes:         document.getElementById('m-notes').value.trim(),
-    is_admin:      document.getElementById('m-is-admin').checked,
-    can_clear_fees:document.getElementById('m-can-clear-fees').checked,
+    affiliation:  document.getElementById('m-affiliation').value.trim(),
+    school_year:  document.getElementById('m-school-year').value.trim(),
+    status:       document.getElementById('m-status').value,
+    notes:        document.getElementById('m-notes').value.trim(),
+    is_admin:     document.getElementById('m-is-admin').checked,
+    is_exec_team: document.getElementById('m-exec-team').checked,
   };
   const btn = document.getElementById('modal-member-submit');
   btn.disabled = true;
@@ -1654,7 +1777,7 @@ async function loadOutstanding() {
         <td class="fee-balance-positive">$${parseFloat(m.fee_balance).toFixed(2)}</td>
         <td>
           <div class="td-actions">
-            ${currentMember?.can_clear_fees ? `<button class="btn-success btn-sm" onclick="openPayment('${m.member_id}', '${esc(m.full_name)}', ${m.fee_balance})">Record Payment</button>` : ''}
+            ${currentMember?.is_exec_team ? `<button class="btn-success btn-sm" onclick="openPayment('${m.member_id}', '${esc(m.full_name)}', ${m.fee_balance})">Record Payment</button>` : ''}
           </div>
         </td>
       </tr>

@@ -256,6 +256,41 @@ async function emailFlakeNotice(member, event, amount, settings) {
 }
 
 /**
+ * Notify a member their post-event outcome changed after an admin corrected
+ * an attendance-taking mistake and re-finalized the event. Only sent to the
+ * specific members whose attendance mark was updated during the correction —
+ * never a blanket re-notify of the whole roster.
+ *
+ * @param {'Attended'|'Lost'} outcome — their corrected final outcome
+ * @param {number|null} feeReversed — set if a previously-charged flake fee was waived
+ */
+async function emailAttendanceCorrected(member, event, outcome, feeReversed, settings) {
+  if (!settings) settings = await getSettings(db);
+  const contact = settings.leadership_email || '';
+
+  const body = outcome === 'Attended'
+    ? `Hi ${member.full_name || member.email},\n\n` +
+      `We double-checked attendance for ${event.name} and you were marked as attending after all — sorry for the mix-up.` +
+      (feeReversed ? ` The $${feeReversed} flake fee on your account has been reversed.` : '') +
+      `\n\nQuestions: ${contact || 'reply to this email'}.` +
+      sigBlock(settings)
+    : `Hi ${member.full_name || member.email},\n\n` +
+      `We double-checked attendance for ${event.name} — your waitlist spot didn't convert to attendance ` +
+      `after all, so you're marked as not attended. No fee was charged.` +
+      `\n\nQuestions: ${contact || 'reply to this email'}.` +
+      sigBlock(settings);
+
+  await sendEmail({
+    to: member.email,
+    subject: `${orgName(settings)} — attendance corrected for ${event.name}`,
+    body,
+    type: 'AttendanceCorrected',
+    eventId: event.event_id,
+    eventName: event.name,
+  });
+}
+
+/**
  * Send a fee-paid confirmation.
  */
 async function emailFeePaidConfirm(member, amount, settings) {
@@ -279,6 +314,7 @@ module.exports = {
   emailLotteryLost,
   emailWaitlistPromotion,
   emailFlakeNotice,
+  emailAttendanceCorrected,
   emailFeePaidConfirm,
   getSettings,
 };
