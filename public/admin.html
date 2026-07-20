@@ -221,6 +221,18 @@
     .toolbar select { max-width: 160px; }
     .toolbar .spacer { flex: 1; }
 
+    /* ── Search-to-select ────────────────────────────────────────────────── */
+    .search-select-wrap { position: relative; max-width: 320px; width: 100%; }
+    .search-select-wrap input[type=search] { max-width: none; width: 100%; }
+    .search-select-results {
+      position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 50;
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+      box-shadow: var(--shadow); max-height: 260px; overflow-y: auto;
+    }
+    .search-select-item { padding: 8px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 1px; }
+    .search-select-item:hover, .search-select-item.active { background: var(--bg); }
+    .search-select-empty { padding: 8px 12px; color: var(--muted); font-style: italic; }
+
     /* ── Pagination ───────────────────────────────────────────────────────── */
     .pagination { display: flex; align-items: center; gap: 8px; margin-top: 14px; justify-content: center; }
     .pagination button { min-width: 34px; }
@@ -616,15 +628,21 @@
         </div>
 
         <div class="card" style="margin-top:20px;">
-          <div class="page-header">
-            <h3 style="margin:0;">Member History</h3>
+          <div class="card-body" style="padding-bottom:0;">
+            <div class="page-header">
+              <h3 style="margin:0;">Member History</h3>
+            </div>
+            <div class="toolbar">
+              <div class="search-select-wrap" id="analytics-member-search-wrap">
+                <input type="search" id="analytics-member-search" placeholder="Search members by name or email…"
+                       autocomplete="off" oninput="filterMemberSearch()" onfocus="filterMemberSearch()"
+                       onkeydown="if (event.key === 'Escape') closeMemberSearchResults();" />
+                <input type="hidden" id="analytics-member-select" />
+                <div id="analytics-member-results" class="search-select-results" style="display:none;"></div>
+              </div>
+            </div>
+            <div id="member-history-summary" class="event-meta"></div>
           </div>
-          <div class="toolbar">
-            <select id="analytics-member-select" onchange="renderMemberHistory()">
-              <option value="">Select a member…</option>
-            </select>
-          </div>
-          <div id="member-history-summary" class="event-meta"></div>
           <div class="table-wrap" style="overflow:auto; max-height:50vh;">
             <table id="member-history-table" style="font-size:12px;">
               <thead>
@@ -2089,13 +2107,13 @@ async function loadAnalytics() {
       yearSel.dataset.populated = '1';
     }
 
-    // Populate the member-history select, preserving the current selection
-    // if that member is still in the (possibly year-filtered) list.
-    const memberSel = document.getElementById('analytics-member-select');
-    const prevSelected = memberSel.value;
-    memberSel.innerHTML = '<option value="">Select a member…</option>' +
-      members.map(m => `<option value="${esc(m.member_id)}">${esc(m.full_name)}</option>`).join('');
-    memberSel.value = members.some(m => m.member_id === prevSelected) ? prevSelected : '';
+    // Keep the member-history search selection only if that member is still
+    // in the (possibly year-filtered) list; otherwise clear it.
+    const memberIdInput = document.getElementById('analytics-member-select');
+    if (!members.some(m => m.member_id === memberIdInput.value)) {
+      memberIdInput.value = '';
+      document.getElementById('analytics-member-search').value = '';
+    }
     renderMemberHistory();
 
     const colCount = analyticsFixedCols + events.length;
@@ -2197,6 +2215,43 @@ function renderMemberHistory() {
     <div class="meta-item"><div class="meta-label">Total Dollar Value</div><div class="meta-value">$${totalDollarValue.toFixed(2)}</div></div>
   `;
 }
+
+function filterMemberSearch() {
+  const query = document.getElementById('analytics-member-search').value.trim().toLowerCase();
+  const results = document.getElementById('analytics-member-results');
+  const members = analyticsData?.members || [];
+
+  const matches = query
+    ? members.filter(m => m.full_name.toLowerCase().includes(query) || m.email.toLowerCase().includes(query))
+    : members;
+
+  results.innerHTML = matches.length
+    ? matches.slice(0, 50).map(m => `
+        <div class="search-select-item" data-member-id="${esc(m.member_id)}" data-full-name="${esc(m.full_name)}"
+             onclick="selectMemberFromSearch(this.dataset.memberId, this.dataset.fullName)">
+          <span style="font-weight:600;">${esc(m.full_name)}</span>
+          <span class="monospace" style="color:var(--muted); font-size:11px;">${esc(m.email)}</span>
+        </div>
+      `).join('')
+    : '<div class="search-select-empty">No members found.</div>';
+  results.style.display = 'block';
+}
+
+function selectMemberFromSearch(memberId, fullName) {
+  document.getElementById('analytics-member-select').value = memberId;
+  document.getElementById('analytics-member-search').value = fullName;
+  closeMemberSearchResults();
+  renderMemberHistory();
+}
+
+function closeMemberSearchResults() {
+  document.getElementById('analytics-member-results').style.display = 'none';
+}
+
+document.addEventListener('click', e => {
+  const wrap = document.getElementById('analytics-member-search-wrap');
+  if (wrap && !wrap.contains(e.target)) closeMemberSearchResults();
+});
 
 async function downloadAnalyticsXlsx() {
   try {
