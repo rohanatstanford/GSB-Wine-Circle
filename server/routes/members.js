@@ -37,6 +37,46 @@ router.get('/', requireAuth, async (req, res) => {
   }
 });
 
+// GET /api/members/export.csv — admin: download the full member roster.
+// Declared before /:id so "export.csv" isn't swallowed as an :id param.
+function csvEscape(v) {
+  const s = String(v == null ? '' : v);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+router.get('/export.csv', requireAdmin, async (req, res) => {
+  try {
+    const { rows } = await db.query(
+      `SELECT m.full_name, m.email, m.affiliation, m.school_year, m.status,
+              m.is_admin, m.is_exec_team, m.fee_balance, m.date_joined,
+              p.full_name AS partner_name
+       FROM members m
+       LEFT JOIN members p ON p.member_id = m.partner_member_id
+       ORDER BY m.full_name`
+    );
+
+    const header = ['Full Name', 'Email', 'Affiliation', 'School Year', 'Status',
+      'Admin', 'Exec Team', 'Fee Balance', 'Date Joined', 'Partner'];
+    const lines = [header.join(',')];
+    rows.forEach(r => {
+      lines.push([
+        r.full_name, r.email, r.affiliation, r.school_year, r.status,
+        r.is_admin ? 'Yes' : 'No', r.is_exec_team ? 'Yes' : 'No',
+        parseFloat(r.fee_balance).toFixed(2),
+        r.date_joined ? new Date(r.date_joined).toISOString() : '',
+        r.partner_name || '',
+      ].map(csvEscape).join(','));
+    });
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="wine-circle-members.csv"');
+    return res.send(lines.join('\r\n'));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
+
 // GET /api/members/:id — admin or self
 router.get('/:id', requireAuth, async (req, res) => {
   const { id } = req.params;

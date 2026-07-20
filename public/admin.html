@@ -478,6 +478,7 @@
         <div class="page-header">
           <h2>Members</h2>
           <div class="actions">
+            <button class="btn-secondary" onclick="downloadMembersCsv()">Export Members (CSV)</button>
             <button class="btn-secondary" onclick="openBulkAddMembers()">Bulk Add</button>
             <button class="btn-primary" onclick="openAddMember()">+ Add Member</button>
           </div>
@@ -1302,6 +1303,29 @@ async function deleteEvent() {
       }
     }
   );
+}
+
+async function downloadMembersCsv() {
+  try {
+    const resp = await fetch('/api/members/export.csv', {
+      headers: sessionToken ? { 'x-session-token': sessionToken } : {},
+    });
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+      throw new Error(data.error || `HTTP ${resp.status}`);
+    }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'wine-circle-members.csv';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
+  }
 }
 
 async function downloadAttendeesCsv() {
