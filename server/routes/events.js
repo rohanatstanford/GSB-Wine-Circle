@@ -94,6 +94,8 @@ router.post('/', requireAdmin, async (req, res) => {
     const sendLost = send_lottery_lost_emails !== undefined
       ? !!send_lottery_lost_emails
       : settings.default_send_lottery_lost_emails !== 'FALSE';
+    const showDollarValue = show_dollar_value !== undefined ? !!show_dollar_value : true;
+    const visibleBeforeOpen = visible_before_open !== undefined ? !!visible_before_open : true;
 
     const { rows } = await db.query(
       `INSERT INTO events
@@ -108,7 +110,7 @@ router.post('/', requireAdmin, async (req, res) => {
         signup_opens_at || null, signup_closes_at || null,
         autoInvite, sendLost,
         dollar_value === '' || dollar_value === undefined ? null : parseFloat(dollar_value),
-        !!show_dollar_value, !!visible_before_open, req.member.email,
+        showDollarValue, visibleBeforeOpen, req.member.email,
       ]
     );
     await audit(req.member.email, 'CreateEvent', 'events', eventId, null, { name });

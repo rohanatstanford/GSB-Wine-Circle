@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS events (
   finalized_at              TIMESTAMPTZ,
   rolled_back_at            TIMESTAMPTZ, -- set when an admin undoes a finalize; cleared on the next finalize
   dollar_value              NUMERIC(10,2), -- value of attending, per member; NULL = not set (distinct from $0)
-  show_dollar_value         BOOLEAN NOT NULL DEFAULT FALSE, -- whether members see dollar_value on their portal
+  show_dollar_value         BOOLEAN NOT NULL DEFAULT TRUE, -- whether members see dollar_value on their portal
   created_at                TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at                TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -66,8 +66,8 @@ CREATE TABLE IF NOT EXISTS events (
 ALTER TABLE events ADD COLUMN IF NOT EXISTS finalized_at TIMESTAMPTZ;
 ALTER TABLE events ADD COLUMN IF NOT EXISTS rolled_back_at TIMESTAMPTZ;
 ALTER TABLE events ADD COLUMN IF NOT EXISTS dollar_value NUMERIC(10,2);
-ALTER TABLE events ADD COLUMN IF NOT EXISTS show_dollar_value BOOLEAN NOT NULL DEFAULT FALSE;
-ALTER TABLE events ADD COLUMN IF NOT EXISTS visible_before_open BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS show_dollar_value BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS visible_before_open BOOLEAN NOT NULL DEFAULT TRUE;
 
 CREATE INDEX IF NOT EXISTS idx_events_status     ON events (status);
 CREATE INDEX IF NOT EXISTS idx_events_event_date ON events (event_date);
