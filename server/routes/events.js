@@ -26,6 +26,7 @@ router.get('/', requireAuth, async (req, res) => {
        FROM events e
        LEFT JOIN signups s ON s.event_id = e.event_id AND s.member_id = $1
        WHERE e.status = 'Open' OR s.signup_id IS NOT NULL
+             OR (e.status = 'Draft' AND e.visible_before_open = TRUE)
        ORDER BY e.event_date ASC NULLS LAST`,
       [req.member.member_id]
     );
@@ -79,7 +80,7 @@ router.post('/', requireAdmin, async (req, res) => {
   const {
     name, event_date, location, capacity, description, host_notes,
     signup_opens_at, signup_closes_at, auto_invite_enabled, send_lottery_lost_emails,
-    dollar_value, show_dollar_value,
+    dollar_value, show_dollar_value, visible_before_open,
   } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
 
@@ -98,8 +99,8 @@ router.post('/', requireAdmin, async (req, res) => {
       `INSERT INTO events
          (event_id, name, event_date, location, capacity, description, host_notes,
           signup_opens_at, signup_closes_at, auto_invite_enabled, send_lottery_lost_emails,
-          dollar_value, show_dollar_value, status, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'Draft',$14)
+          dollar_value, show_dollar_value, visible_before_open, status, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'Draft',$15)
        RETURNING *`,
       [
         eventId, name, event_date || null, location || '', cap,
@@ -107,7 +108,7 @@ router.post('/', requireAdmin, async (req, res) => {
         signup_opens_at || null, signup_closes_at || null,
         autoInvite, sendLost,
         dollar_value === '' || dollar_value === undefined ? null : parseFloat(dollar_value),
-        !!show_dollar_value, req.member.email,
+        !!show_dollar_value, !!visible_before_open, req.member.email,
       ]
     );
     await audit(req.member.email, 'CreateEvent', 'events', eventId, null, { name });
@@ -129,7 +130,7 @@ router.patch('/:id', requireAdmin, async (req, res) => {
     const allowed = [
       'name', 'event_date', 'location', 'capacity', 'description', 'host_notes',
       'signup_opens_at', 'signup_closes_at', 'auto_invite_enabled', 'send_lottery_lost_emails',
-      'dollar_value', 'show_dollar_value',
+      'dollar_value', 'show_dollar_value', 'visible_before_open',
     ];
     const updates = {};
     allowed.forEach(f => { if (req.body[f] !== undefined) updates[f] = req.body[f]; });

@@ -15,7 +15,8 @@ INSERT INTO settings (key, value, description) VALUES
   ('default_send_lottery_lost_emails','FALSE',                                                           'Default for new events: send "you didn''t make it" emails'),
   ('web_app_url',                     '',                                                                'Set after deploy: the base URL of the web app'),
   ('dev_mode_enabled',                'FALSE',                                                           'TESTING ONLY: when TRUE, unlocks dev endpoints. Set to FALSE before going live.'),
-  ('current_school_year',             '2026-27',                                                         'Default school year applied to new members and bulk imports — update each fall')
+  ('current_school_year',             '2026-27',                                                         'Default school year applied to new members and bulk imports — update each fall'),
+  ('flake_batch_to_emails',            'gsb_winecircle-leadership@lists.stanford.edu, lforstho@stanford.edu', 'Visible "To" recipients on the batch flake-fee notice email (comma-separated); flaked members are always bcc''d, never shown here')
 ON CONFLICT (key) DO NOTHING;
 
 -- These two were previously seeded as TRUE; ON CONFLICT DO NOTHING above

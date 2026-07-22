@@ -221,7 +221,7 @@
 <div id="view-login" class="view">
   <div class="login-box">
     <h1 id="login-org-name">Wine Circle</h1>
-    <p>Enter your roster email and we'll send you a 6-digit login code.</p>
+    <p>Enter the email you used to sign up for wine circle and we'll send you a 6-digit login code.</p>
     <div id="step-email">
       <input type="email" id="email" placeholder="you@stanford.edu" autocomplete="email">
       <div class="err" id="login-err"></div>
@@ -299,7 +299,7 @@
           <div class="cal-grid" id="cal-grid"></div>
           <div class="cal-legend">
             <span class="legend-item"><span class="cal-dot dot-scheduled"></span> Scheduled</span>
-            <span class="legend-item"><span class="cal-dot dot-signed-up"></span> Signed up</span>
+            <span class="legend-item"><span class="cal-dot dot-signed-up"></span> Pending Lottery</span>
             <span class="legend-item"><span class="cal-dot dot-won"></span> Won lottery</span>
             <span class="legend-item"><span class="cal-dot dot-lost"></span> Lost lottery</span>
           </div>
@@ -419,7 +419,7 @@
       // member has a signup on them - they're not upcoming anymore.
       var events = (res.events || []).filter(function (e) {
         var upcoming = e.status !== 'Completed' && e.status !== 'Cancelled';
-        return upcoming && (e.status === 'Open' || e.signup_status);
+        return upcoming && (e.status === 'Open' || e.signup_status || e.visible_before_open);
       });
       renderEventsSummary(events);
       renderEvents(events);
@@ -504,7 +504,7 @@
   // pre-outcome ones — otherwise a Flaked/Attended/Dropped/Lost signup
   // silently renders as "Not signed up", which is actively misleading.
   function signupStatusPill(ss, showNotSignedUp) {
-    if (ss === 'Pending')  return '<span class="pill signed-up">Signed up</span>';
+    if (ss === 'Pending')  return '<span class="pill signed-up">Pending Lottery</span>';
     if (ss === 'Invited')  return '<span class="pill invited">Invited</span>';
     if (ss === 'Waitlist') return '<span class="pill waitlist">Waitlisted</span>';
     if (ss === 'Attended') return '<span class="pill attended">Attended</span>';
@@ -540,8 +540,11 @@
       var statusPill = signupStatusPill(ss, false);
 
       var alreadyIn = !!ss;
-      var btnDisabled = alreadyIn || blocked ? 'disabled' : '';
-      var btnLabel = alreadyIn ? 'Already signed up' : (blocked ? 'Pay fee to sign up' : 'Enter lottery');
+      var notOpenYet = ev.status !== 'Open' && !alreadyIn;
+      var btnDisabled = alreadyIn || blocked || notOpenYet ? 'disabled' : '';
+      var btnLabel = alreadyIn ? 'Already signed up'
+        : (notOpenYet ? 'Signups not open yet'
+        : (blocked ? 'Pay fee to sign up' : 'Enter lottery'));
 
       var meta = [fmtDate(ev.event_date), ev.location].filter(Boolean).join(' · ');
       var dollarLine = (ev.show_dollar_value && ev.dollar_value != null)
@@ -615,7 +618,7 @@
   // ── Event detail overlay (My history cards + calendar day click) ──────────
 
   var eventDetailStatusLabel = {
-    Pending:  'Signed up',
+    Pending:  'Pending Lottery',
     Invited:  'Invited',
     Waitlist: 'Waitlisted',
     Attended: 'Attended',

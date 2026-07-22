@@ -279,21 +279,20 @@ async function emailFlakeNotice(member, event, amount, settings) {
   });
 }
 
-// Fixed per policy — these are the only visible recipients on a flake batch
-// notice; every flaked member for the event goes in bcc instead, so no one
-// sees the rest of the list.
-const FLAKE_BATCH_TO = 'gsb_winecircle-leadership@lists.stanford.edu, lforstho@stanford.edu';
+// Fallback if the 'flake_batch_to_emails' setting has never been configured.
+const FLAKE_BATCH_TO_DEFAULT = 'gsb_winecircle-leadership@lists.stanford.edu, lforstho@stanford.edu';
 
 /**
  * Send a single flake-fee notice covering every member in `flakedMembers`,
  * all bcc'd on one message — never one email per member. Visible "To" is
- * fixed leadership addresses; recipients only see themselves, not the rest
- * of the bcc list.
+ * the configurable leadership address list (Settings: flake_batch_to_emails);
+ * recipients only see themselves, not the rest of the bcc list.
  * @param {Array<{email: string}>} flakedMembers
  */
 async function emailFlakeBatch(flakedMembers, event, settings) {
   if (!settings) settings = await getSettings(db);
   const payUrl = settings.assu_epay_url || '';
+  const toLine = settings.flake_batch_to_emails || FLAKE_BATCH_TO_DEFAULT;
   const bcc = flakedMembers.map(m => m.email).join(', ');
 
   const plainBody =
@@ -318,7 +317,7 @@ async function emailFlakeBatch(flakedMembers, event, settings) {
 
   const subject = `${orgName(settings)} — Flake fee notice for ${event.name}`;
   const result = await sendEmail({
-    to: FLAKE_BATCH_TO,
+    to: toLine,
     bcc,
     subject,
     body: plainBody,

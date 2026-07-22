@@ -31,8 +31,23 @@ router.get('/public', async (req, res) => {
   }
 });
 
-// GET /api/settings
+// GET /api/settings/current-school-year — any admin: needed as a form default
+// when creating/importing members, which non-Exec admins can also do.
+router.get('/current-school-year', requireAdmin, async (req, res) => {
+  try {
+    const { rows } = await db.query(`SELECT value FROM settings WHERE key = 'current_school_year'`);
+    return res.json({ current_school_year: rows[0]?.value || '2026-27' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+// GET /api/settings — Exec Team only
 router.get('/', requireAdmin, async (req, res) => {
+  if (!req.member.is_exec_team) {
+    return res.status(403).json({ error: 'Exec Team permission required' });
+  }
   try {
     const { rows } = await db.query('SELECT key, value, description FROM settings ORDER BY key');
     return res.json({ settings: rows });
@@ -42,8 +57,11 @@ router.get('/', requireAdmin, async (req, res) => {
   }
 });
 
-// PATCH /api/settings/:key
+// PATCH /api/settings/:key — Exec Team only
 router.patch('/:key', requireAdmin, async (req, res) => {
+  if (!req.member.is_exec_team) {
+    return res.status(403).json({ error: 'Exec Team permission required' });
+  }
   const { key } = req.params;
   const { value } = req.body;
   if (value === undefined) return res.status(400).json({ error: 'value required' });
