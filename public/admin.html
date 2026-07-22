@@ -441,6 +441,7 @@
           <button class="btn-primary   btn-sm" id="btn-push-updates"   onclick="eventAction('push-updates')">Push Portal Updates</button>
           <button class="btn-success   btn-sm" id="btn-finalize"       onclick="eventAction('finalize')">Finalize Event</button>
           <button class="btn-secondary btn-sm" id="btn-unfinalize"     onclick="eventAction('unfinalize')">Roll Back Finalize</button>
+          <button class="btn-secondary btn-sm" id="btn-send-flake-emails" onclick="eventAction('send-flake-emails')">Send Flake Emails</button>
           <button class="btn-danger    btn-sm" id="btn-cancel-event"   onclick="eventAction('cancel')">Cancel Event</button>
           <button class="btn-secondary btn-sm"                         onclick="openEditEvent()">Edit Details</button>
           <button class="btn-secondary btn-sm"                         onclick="downloadAttendeesCsv()">Export Attendees (CSV)</button>
@@ -1354,8 +1355,9 @@ async function eventAction(action) {
     'run-lottery':  ['Run Lottery', 'Run the lottery now? This assigns Invited/Waitlist/Lost statuses to all Pending signups.', 'btn-primary'],
     'send-lost':    ['Send Lost Emails', 'Send "lottery lost" emails to all Lost members?', 'btn-secondary'],
     'push-updates': ['Push Portal Updates', 'Push every status change on this event to members\' portals? Anyone with a "Pending Push" row will see their new status immediately.', 'btn-primary'],
-    'finalize':     ['Finalize Event', 'Finalize this event? This will mark non-attending invited members as Flaked and charge flake fees.', 'btn-danger'],
+    'finalize':     ['Finalize Event', 'Finalize this event? This will mark non-attending invited members as Flaked and charge flake fees. No emails are sent automatically — use "Send Flake Emails" afterward.', 'btn-danger'],
     'unfinalize':   ['Roll Back Finalize', 'Undo finalizing this event? This reverses any flake fees it charged (via a waiver, not a deletion) and puts the event back to Lotteried so you can fix attendance and re-finalize.', 'btn-danger'],
+    'send-flake-emails': ['Send Flake Emails', 'Send one batch flake-fee notice (all not-yet-notified flaked members bcc\'d together) to the leadership list?', 'btn-primary'],
     'cancel':       ['Cancel Event', 'Cancel this event?', 'btn-danger'],
   };
   const [title, message, btnClass] = confirmMap[action] || ['Confirm', 'Are you sure?', 'btn-danger'];
@@ -1388,10 +1390,14 @@ async function eventAction(action) {
       } else if (action === 'finalize') {
         result = await api('POST', `/events/${ev}/finalize`);
         toast(`Event finalized. ${result.flaked ?? 0} flake(s) recorded.` +
-          (result.corrected ? ` Emailed ${result.corrected} member(s) whose attendance was corrected.` : ''), 'success');
+          (result.corrected ? ` ${result.corrected} member(s)' attendance was corrected — use "Send Flake Emails" to notify.` : '') +
+          ' No emails were sent automatically.', 'success');
       } else if (action === 'unfinalize') {
         result = await api('POST', `/events/${ev}/unfinalize`);
         toast(`Rolled back. Restored ${result.restored ?? 0} signup(s), waived ${result.waived ?? 0} flake fee(s).`, 'success');
+      } else if (action === 'send-flake-emails') {
+        result = await api('POST', `/events/${ev}/send-flake-emails`);
+        toast(result.sent ? `Sent flake notice to ${result.sent} member(s).` : 'No new flake notices to send — everyone flaked has already been notified.', 'success');
       } else if (action === 'cancel') {
         await api('POST', `/events/${ev}/cancel`);
         toast('Event cancelled', 'success');

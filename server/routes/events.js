@@ -4,7 +4,7 @@ const { v4: uuidv4 } = require('uuid');
 const db = require('../db');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { audit } = require('../services/audit');
-const { getSettings, emailFlakeNotice, emailAttendanceCorrected } = require('../services/email');
+const { getSettings, emailFlakeBatch } = require('../services/email');
 const { recomputeBalance } = require('../services/fees');
 const {
   assignLotteryResults,
@@ -275,8 +275,10 @@ router.post('/:id/finalize', requireAdmin, async (req, res) => {
     }
     const waitlisted = toLose; // alias for audit count below
 
-    // Members whose attendance mark changed since the rollback — the only
-    // ones a re-finalize will email, and only if this really is a re-finalize.
+    // Members whose attendance mark changed since the rollback — informational
+    // only (shown to the admin so they can confirm the correction took), no
+    // email is sent here. Notifying flaked members is a separate, explicit
+    // step — see POST /:id/send-flake-emails below.
     let correctedSignups = [];
     if (isRefinalize) {
       const { rows } = await client.query(
@@ -294,22 +296,6 @@ router.post('/:id/finalize', requireAdmin, async (req, res) => {
 
     await client.query('COMMIT');
 
-    if (correctedSignups.length) {
-      for (const s of correctedSignups) {
-        const member = { email: s.member_email, full_name: s.member_name };
-        if (s.status === 'Flaked') {
-          emailFlakeNotice(member, event, feeAmount, settings)
-            .catch(e => console.error('Flake notice error:', e.message));
-        } else if (s.status === 'Attended') {
-          emailAttendanceCorrected(member, event, 'Attended', feeAmount, settings)
-            .catch(e => console.error('Attendance-corrected email error:', e.message));
-        } else if (s.status === 'Lost') {
-          emailAttendanceCorrected(member, event, 'Lost', null, settings)
-            .catch(e => console.error('Attendance-corrected email error:', e.message));
-        }
-      }
-    }
-
     await audit(req.member.email, 'FinalizeEvent', 'events', id, null,
       { flaked: toFlake.length, lost: waitlisted.length, refinalize: isRefinalize, corrected: correctedSignups.length });
 
@@ -320,6 +306,47 @@ router.post('/:id/finalize', requireAdmin, async (req, res) => {
     res.status(500).json({ error: 'Internal error' });
   } finally {
     client.release();
+  }
+});
+
+// POST /api/events/:id/send-flake-emails — admin: send one batch flake-fee
+// notice covering every Flaked signup for this event that hasn't been
+// notified yet (bcc'd on a single message, fixed leadership "To"). Gated on
+// flake_notice_sent_at so re-clicking after a correction only reaches
+// newly-flaked members, never re-spams everyone from a prior finalize.
+router.post('/:id/send-flake-emails', requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const { rows: evRows } = await db.query('SELECT * FROM events WHERE event_id = $1', [id]);
+    if (!evRows.length) return res.status(404).json({ error: 'Event not found' });
+    const event = evRows[0];
+
+    const { rows: toNotify } = await db.query(
+      `SELECT s.signup_id, m.email, m.full_name
+       FROM signups s JOIN members m ON m.member_id = s.member_id
+       WHERE s.event_id = $1 AND s.status = 'Flaked' AND s.flake_notice_sent_at IS NULL`,
+      [id]
+    );
+
+    if (!toNotify.length) {
+      return res.json({ ok: true, sent: 0 });
+    }
+
+    const settings = await getSettings();
+    const result = await emailFlakeBatch(toNotify, event, settings);
+
+    if (result.ok) {
+      const signupIds = toNotify.map(s => s.signup_id);
+      await db.query(`UPDATE signups SET flake_notice_sent_at = NOW() WHERE signup_id = ANY($1)`, [signupIds]);
+    }
+
+    await audit(req.member.email, 'SendFlakeEmails', 'events', id, null,
+      { notified: toNotify.length, ok: result.ok });
+
+    return res.json({ ok: result.ok, sent: toNotify.length, error: result.error });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal error' });
   }
 });
 

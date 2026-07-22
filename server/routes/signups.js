@@ -287,6 +287,9 @@ router.get('/by-token/:token', async (req, res) => {
 });
 
 // POST /api/signups/:id/attendance — admin: mark attendance
+// Checking the box moves a signup to 'Attended', remembering whatever
+// status it had before (Invited or Waitlist) so that unchecking restores
+// that exact prior status rather than leaving it stuck on 'Attended'.
 router.post('/:id/attendance', requireAdmin, async (req, res) => {
   const { attended } = req.body;
   if (attended === undefined) return res.status(400).json({ error: 'attended required' });
@@ -295,16 +298,24 @@ router.post('/:id/attendance', requireAdmin, async (req, res) => {
   try {
     await client.query('BEGIN');
     const { rows: existing } = await client.query(
-      'SELECT * FROM signups WHERE signup_id = $1', [req.params.id]
+      'SELECT * FROM signups WHERE signup_id = $1 FOR UPDATE', [req.params.id]
     );
     if (!existing.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Signup not found' }); }
     const s = existing[0];
 
-    const newStatus = attended ? 'Attended' : s.status;
+    let newStatus, newPreStatus;
+    if (attended) {
+      newPreStatus = s.status === 'Attended' ? s.pre_attendance_status : s.status;
+      newStatus = 'Attended';
+    } else {
+      newStatus = s.status === 'Attended' ? (s.pre_attendance_status || 'Invited') : s.status;
+      newPreStatus = null;
+    }
+
     const { rows } = await client.query(
-      `UPDATE signups SET status = $1, attended_marked_at = NOW(), marked_by = $2
-       WHERE signup_id = $3 RETURNING *`,
-      [newStatus, req.member.email, req.params.id]
+      `UPDATE signups SET status = $1, pre_attendance_status = $2, attended_marked_at = NOW(), marked_by = $3
+       WHERE signup_id = $4 RETURNING *`,
+      [newStatus, newPreStatus, req.member.email, req.params.id]
     );
     await client.query('COMMIT');
     await audit(req.member.email, attended ? 'MarkAttended' : 'UnmarkAttended',

@@ -27,30 +27,51 @@ function encodeHeader(str) {
   return `=?UTF-8?B?${Buffer.from(str, 'utf8').toString('base64')}?=`;
 }
 
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
 /**
  * Build a minimal RFC 2822 message string and base64url-encode it for Gmail's API.
+ * When `html` is given, builds a multipart/alternative message (plain-text
+ * fallback + HTML) instead of a plain text/plain one — needed for the flake
+ * batch notice's hyperlinked payment link.
  */
-function buildRawMessage({ from, to, subject, text }) {
-  const bodyB64 = Buffer.from(text, 'utf8').toString('base64').replace(/(.{76})/g, '$1\r\n');
-  const lines = [
-    `From: ${from}`,
-    `To: ${to}`,
-    `Subject: ${encodeHeader(subject)}`,
-    'MIME-Version: 1.0',
-    'Content-Type: text/plain; charset="UTF-8"',
-    'Content-Transfer-Encoding: base64',
-    '',
-    bodyB64,
-  ];
-  const raw = lines.join('\r\n');
+function buildRawMessage({ from, to, bcc, subject, text, html }) {
+  const headers = [`From: ${from}`, `To: ${to}`];
+  if (bcc) headers.push(`Bcc: ${bcc}`);
+  headers.push(`Subject: ${encodeHeader(subject)}`, 'MIME-Version: 1.0');
+
+  let bodyLines;
+  if (html) {
+    const boundary = `WineCircle_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const textB64 = Buffer.from(text, 'utf8').toString('base64').replace(/(.{76})/g, '$1\r\n');
+    const htmlB64 = Buffer.from(html, 'utf8').toString('base64').replace(/(.{76})/g, '$1\r\n');
+    headers.push(`Content-Type: multipart/alternative; boundary="${boundary}"`);
+    bodyLines = [
+      '', `--${boundary}`,
+      'Content-Type: text/plain; charset="UTF-8"', 'Content-Transfer-Encoding: base64', '',
+      textB64,
+      `--${boundary}`,
+      'Content-Type: text/html; charset="UTF-8"', 'Content-Transfer-Encoding: base64', '',
+      htmlB64,
+      `--${boundary}--`,
+    ];
+  } else {
+    const bodyB64 = Buffer.from(text, 'utf8').toString('base64').replace(/(.{76})/g, '$1\r\n');
+    headers.push('Content-Type: text/plain; charset="UTF-8"', 'Content-Transfer-Encoding: base64');
+    bodyLines = ['', bodyB64];
+  }
+
+  const raw = [...headers, ...bodyLines].join('\r\n');
   return Buffer.from(raw, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-async function sendViaGmailApi({ to, subject, body }) {
+async function sendViaGmailApi({ to, bcc, subject, body, html }) {
   const { token } = await oauth2Client.getAccessToken();
   if (!token) throw new Error('Failed to obtain a Gmail access token — check GMAIL_REFRESH_TOKEN is still valid.');
 
-  const raw = buildRawMessage({ from: EMAIL_FROM, to, subject, text: body });
+  const raw = buildRawMessage({ from: EMAIL_FROM, to, bcc, subject, text: body, html });
   const resp = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -66,21 +87,23 @@ async function sendViaGmailApi({ to, subject, body }) {
  * Send a transactional email and log it to email_log.
  * @param {object} opts
  * @param {string}  opts.to
+ * @param {string}  [opts.bcc]
  * @param {string}  opts.subject
  * @param {string}  opts.body      — plain text body
+ * @param {string}  [opts.html]    — optional HTML body (sent as multipart/alternative)
  * @param {string}  opts.type      — e.g. 'MagicLink', 'Invitation', 'FlakeNotice'
  * @param {string}  [opts.eventId]
  * @param {string}  [opts.signupId]
  * @param {string}  [opts.eventName]
  */
 async function sendEmail(opts) {
-  const { to, subject, body, type, eventId, signupId, eventName } = opts;
+  const { to, bcc, subject, body, html, type, eventId, signupId, eventName } = opts;
   let status;
   let errorMsg = null;
 
   if (oauth2Client) {
     try {
-      await sendViaGmailApi({ to, subject, body });
+      await sendViaGmailApi({ to, bcc, subject, body, html });
       status = 'sent';
     } catch (err) {
       status = 'error';
@@ -95,6 +118,7 @@ async function sendEmail(opts) {
     errorMsg = 'Gmail API credentials not configured — logged to console only';
     console.log('=== EMAIL (Gmail API credentials not configured) ===');
     console.log(`To: ${to}`);
+    if (bcc) console.log(`Bcc: ${bcc}`);
     console.log(`Subject: ${subject}`);
     console.log(`Body:\n${body}`);
     console.log('======================================================');
@@ -255,6 +279,73 @@ async function emailFlakeNotice(member, event, amount, settings) {
   });
 }
 
+// Fixed per policy — these are the only visible recipients on a flake batch
+// notice; every flaked member for the event goes in bcc instead, so no one
+// sees the rest of the list.
+const FLAKE_BATCH_TO = 'gsb_winecircle-leadership@lists.stanford.edu, lforstho@stanford.edu';
+
+/**
+ * Send a single flake-fee notice covering every member in `flakedMembers`,
+ * all bcc'd on one message — never one email per member. Visible "To" is
+ * fixed leadership addresses; recipients only see themselves, not the rest
+ * of the bcc list.
+ * @param {Array<{email: string}>} flakedMembers
+ */
+async function emailFlakeBatch(flakedMembers, event, settings) {
+  if (!settings) settings = await getSettings(db);
+  const payUrl = settings.assu_epay_url || '';
+  const bcc = flakedMembers.map(m => m.email).join(', ');
+
+  const plainBody =
+    `Hi all (bcc'd),\n\n` +
+    `You are receiving this notice because our records show that you either (1) failed to attend or (2) came >20 mins late (per policy) to the ${event.name} event on Thursday, and as a result, your Wine Circle membership is temporarily on pause. (Note, per the policy, declining the calendar invite does not count as notice, and you must email the organizer >24 hours before the event that you have to miss in order to avoid the flake fee).\n\n` +
+    `If you're hoping to attend upcoming events, please complete the $30 fee${payUrl ? ` (${payUrl})` : ''}, upload a screenshot of your payment confirmation here, and shoot a quick note to Luke Forsthoefel to ensure you get back on the list.\n\n` +
+    `Otherwise, let us know if you think this is in error.\n\n` +
+    `Thanks,\nGSB Wine Circle Leadership`;
+
+  const payLinkHtml = payUrl ? `<a href="${escapeHtml(payUrl)}">here</a>` : 'here';
+  const htmlBody =
+    `<p>Hi all (bcc'd),</p>` +
+    `<p>You are receiving this notice because our records show that you either (1) failed to attend or ` +
+    `(2) came &gt;20 mins late (per policy) to the ${escapeHtml(event.name)} event on Thursday, and as a result, ` +
+    `your Wine Circle membership is temporarily on pause. (Note, per the policy, declining the calendar invite ` +
+    `does not count as notice, and you must email the organizer &gt;24 hours before the event that you have to ` +
+    `miss in order to avoid the flake fee).</p>` +
+    `<p>If you're hoping to attend upcoming events, please complete the $30 fee ${payLinkHtml}, upload a screenshot ` +
+    `of your payment confirmation here, and shoot a quick note to Luke Forsthoefel to ensure you get back on the list.</p>` +
+    `<p>Otherwise, let us know if you think this is in error.</p>` +
+    `<p>Thanks,<br>GSB Wine Circle Leadership</p>`;
+
+  const subject = `${orgName(settings)} — Flake fee notice for ${event.name}`;
+  const result = await sendEmail({
+    to: FLAKE_BATCH_TO,
+    bcc,
+    subject,
+    body: plainBody,
+    html: htmlBody,
+    type: 'FlakeNotice',
+    eventId: event.event_id,
+    eventName: event.name,
+  });
+
+  // The real send is one message with everyone in bcc — but also log one
+  // row per flaked member so the Email Log's "To" filter can still answer
+  // "was this specific member notified", not just "was the batch sent".
+  for (const m of flakedMembers) {
+    try {
+      await db.query(
+        `INSERT INTO email_log (to_email, subject, type, event_id, event_name, status, error)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [m.email, subject, 'FlakeNotice', event.event_id, event.name, result.ok ? 'sent' : 'error', result.error]
+      );
+    } catch (logErr) {
+      console.error('Email log write error:', logErr.message);
+    }
+  }
+
+  return result;
+}
+
 /**
  * Notify a member their post-event outcome changed after an admin corrected
  * an attendance-taking mistake and re-finalized the event. Only sent to the
@@ -314,6 +405,7 @@ module.exports = {
   emailLotteryLost,
   emailWaitlistPromotion,
   emailFlakeNotice,
+  emailFlakeBatch,
   emailAttendanceCorrected,
   emailFeePaidConfirm,
   getSettings,

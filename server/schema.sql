@@ -99,6 +99,14 @@ CREATE TABLE IF NOT EXISTS signups (
   -- unfinalize roll back exactly (and only) what the last finalize touched,
   -- without also reverting unrelated Flaked statuses from late self-declines.
   finalized_from      TEXT,
+  -- What status a signup was in right before it got checked as Attended
+  -- ('Invited' or 'Waitlist') — lets unchecking the attendance box restore
+  -- the correct prior status instead of leaving it stuck on 'Attended'.
+  pre_attendance_status TEXT,
+  -- Stamped when this signup's member was included in a "Send Flake Emails"
+  -- batch, so re-sending after an attendance correction only reaches
+  -- newly-flaked members instead of re-notifying everyone again.
+  flake_notice_sent_at  TIMESTAMPTZ,
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (event_id, member_id)
@@ -106,6 +114,8 @@ CREATE TABLE IF NOT EXISTS signups (
 
 ALTER TABLE signups ADD COLUMN IF NOT EXISTS member_visible_status TEXT NOT NULL DEFAULT 'Pending';
 ALTER TABLE signups ADD COLUMN IF NOT EXISTS finalized_from TEXT;
+ALTER TABLE signups ADD COLUMN IF NOT EXISTS pre_attendance_status TEXT;
+ALTER TABLE signups ADD COLUMN IF NOT EXISTS flake_notice_sent_at TIMESTAMPTZ;
 -- Backfill: existing rows should show as already-synced, not as a sudden
 -- backlog of "pending push" the moment this ships.
 UPDATE signups SET member_visible_status = status WHERE member_visible_status != status;
