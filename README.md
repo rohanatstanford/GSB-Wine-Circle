@@ -5,10 +5,14 @@ signups, attendance tracking, and flake-fee enforcement.
 
 **Live at:** https://wine-circle-app.onrender.com
 
-This started as a Google Apps Script + Sheets prototype (the `.gs`/`.html`
-files at the repo root — kept for reference only, no longer deployed) and has
-since been rebuilt as a standalone Node/Express + Postgres application. That
-rebuild is the current, actively maintained system described below.
+This started as a Google Apps Script + Sheets prototype, then moved through
+Replit, before landing on its current architecture: a standalone
+Node/Express + Postgres application, deployed on Render. That's the only
+version of the app in this repo now — see below.
+
+For a deeper technical reference (full data model, route inventory, core
+workflows, security posture) — the kind of detail you'd want before making a
+non-trivial change — see [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ## Architecture
 
@@ -150,11 +154,12 @@ same for `seed.sql`) — there is no automatic migration step, and forgetting
 this is the most common cause of a working-locally-but-broken-in-production
 bug (a route selecting a column that doesn't exist yet in prod).
 
-## Legacy: Apps Script prototype
+## Legacy artifacts
 
-The `.gs`/`.html` files at the repo root and `replit.md` describe the
-original Google Sheets-backed MVP this app replaced. They're kept for
-historical reference only — not deployed, not maintained, and increasingly
-out of sync with the current feature set. Do not follow their setup
-instructions expecting to get the current app; use the Local development
-section above instead.
+The original Google Apps Script + Sheets prototype's files have been removed
+from the repo entirely — see git history before this note if you need to
+look at that approach for reference. `.replit`, `replit.nix`, and
+`replit.md` are leftover config from a later, separate legacy hosting
+step (this Node app briefly ran on Replit before moving to Render) — not
+deployed, not maintained. Use the Local development section above for the
+current setup regardless of what those files describe.
