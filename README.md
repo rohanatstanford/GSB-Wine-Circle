@@ -41,8 +41,10 @@ non-trivial change — see [`ARCHITECTURE.md`](ARCHITECTURE.md).
   - `admin.html` — admin/exec dashboard.
   - `decline.html` — public, token-based page for declining an invitation
     (linked from invitation emails, no login required).
-- **Database:** Postgres. Production runs on Neon (serverless, free tier
-  persists indefinitely); local dev typically uses a local Postgres instance.
+- **Database:** Postgres. Production runs on Supabase's free tier; local dev
+  typically uses a local Postgres instance. See `ARCHITECTURE.md` §11a for
+  why (a prior provider's free tier didn't fit this app's usage pattern) and
+  a connection gotcha worth knowing before touching the production DB.
 - **Email:** sent via the **Gmail REST API over HTTPS (OAuth2)** —
   deliberately not SMTP, since Render's free tier (and many other hosts)
   blocks outbound SMTP entirely. See `.env.example` for the OAuth setup
@@ -50,7 +52,7 @@ non-trivial change — see [`ARCHITECTURE.md`](ARCHITECTURE.md).
   the message to the console instead of silently pretending to succeed —
   useful for local dev.
 - **Deployment:** Render (single web service serves both the API and the
-  static frontend) + Neon Postgres. Config in `render.yaml`; secrets
+  static frontend) + Supabase Postgres. Config in `render.yaml`; secrets
   (`DATABASE_URL`, `GMAIL_*`, `EMAIL_FROM`, `ALLOWED_ORIGINS`) are set
   directly in the Render dashboard, not committed.
 

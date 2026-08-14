@@ -23,8 +23,10 @@ Live at **https://wine-circle-app.onrender.com**.
 
 - **Backend:** Node.js + Express 5, `pg` for raw parameterized SQL (no ORM,
   no query builder).
-- **Database:** PostgreSQL. Production is Neon (serverless, free tier).
-  Local dev is typically a local Postgres instance.
+- **Database:** PostgreSQL. Production is Supabase (free tier — see §11 for
+  why, and a connection gotcha). Local dev is typically a local Postgres
+  instance. (Ran on Neon before 2026-08; moved off it after its compute-hour
+  metering conflicted with this app's per-minute cron — see §11.)
 - **Frontend:** plain HTML/CSS/vanilla JS, no build step, no framework, no
   bundler. Three static pages served directly by Express.
 - **Email:** Gmail REST API over HTTPS (OAuth2) — not SMTP. Render's free
@@ -37,8 +39,8 @@ Live at **https://wine-circle-app.onrender.com**.
 - **Testing:** Jest, currently covering pure business-logic functions only
   (no integration/route tests, no frontend tests).
 - **Hosting:** Render (single web service, serves API + static frontend) +
-  Neon Postgres. Config in `render.yaml`; secrets set directly in Render's
-  dashboard (never committed).
+  Supabase Postgres. Config in `render.yaml`; secrets set directly in
+  Render's dashboard (never committed).
 
 ## 3. Repository layout
 
@@ -98,7 +100,7 @@ a column, you must manually re-run `schema.sql` against every environment
 that needs it** — local dev, and separately, production (`psql
 "$PROD_DATABASE_URL" -f server/schema.sql`). Forgetting the production side
 is the single most common way to ship a "works locally, 500s in prod" bug
-(a route selects a column that doesn't exist yet on Neon) — this has
+(a route selects a column that doesn't exist yet in production) — this has
 happened at least once already.
 
 ### `members`
@@ -484,6 +486,68 @@ prevent Render's free-tier cold-start/spin-down.
 production by hand** (`psql "$PROD_DATABASE_URL" -f server/schema.sql`, same
 for `seed.sql`) — there is no CI step or auto-migration that does this for
 you.
+
+### 11a. Database provider: Supabase (moved off Neon 2026-08)
+
+Production ran on Neon originally. Moved to Supabase because Neon's free
+tier meters actual active-compute time (100 CU-hours/month at the 0.25 CU
+size, ≈400 wall-clock hours) and this app's per-minute signup-window cron
+(§4a) queries the database every 60 seconds regardless of whether there's
+anything to do — that's frequent enough to defeat Neon's 5-minute
+autosuspend entirely (the compute never accumulates 5 idle minutes), so it
+stayed continuously "active" and burned through the monthly budget in under
+17 days. Supabase's free tier doesn't meter compute-hours at all; it only
+pauses a project after **7 consecutive days with zero database requests** —
+a bar the per-minute cron alone clears by a wide margin, so the project
+simply never pauses, with no cron-frequency tradeoff needed. If a future
+provider change is ever considered again, check its free-tier billing model
+against this same behavior (does it meter active-compute time at all, or
+just require periodic traffic?) before assuming another "generous free
+tier" host will actually work here.
+
+**Connection gotcha:** Supabase's **direct** connection host
+(`db.<project-ref>.supabase.co:5432`) is IPv6-only. If the environment
+making the connection doesn't have IPv6 routing (confirmed to fail this way
+from the local dev machine used for the migration — don't assume any given
+host has IPv6 without checking), it fails with "No route to host," not an
+auth or config error. Use the **session pooler** connection
+instead (`aws-0-<region>.pooler.supabase.com:5432`, username
+`postgres.<project-ref>` — note the different username format, it's not
+just `postgres`) — that one supports IPv4 and is what both local
+tooling and the deployed app use. Supabase also offers a **transaction
+pooler** (port 6543) for higher connection-count scaling, but it doesn't
+reliably support every Postgres wire-protocol feature `pg` may use — stick
+with the session pooler unless you have a specific reason to need
+transaction-mode's higher connection multiplexing and have verified it
+against this app's query patterns first.
+
+**Sequence gotcha (bit us during the Neon→Supabase migration, will bite any
+future cross-database data migration the same way):** every `BIGSERIAL`
+primary key in this schema (`email_log.log_id`, `audit_log.id`,
+`auth_sessions.id`, `auth_codes.id`) is backed by a Postgres sequence that
+only advances via `nextval()` — i.e., only when a normal `INSERT` omits the
+PK and lets the default fire. Copying rows between databases with the PK
+value included explicitly (as any straightforward data migration does, to
+preserve history) inserts real rows but **never touches the sequence**, so
+it's left starting from 1 while the table already has rows numbered into the
+hundreds. The next organic insert then collides with an existing row and
+fails — and because both `audit()` (`services/audit.js`) and the email
+logger inside `sendEmail()` (`services/email.js`) deliberately swallow their
+own write errors so a logging failure never crashes the real operation, this
+failure is **completely silent**: the actual email sends fine, the actual
+admin action completes fine, and only the audit trail silently stops being
+written, with nothing surfacing anywhere except a `console.error` that
+nobody's watching. After any migration that copies data into a table with a
+`BIGSERIAL`/`SERIAL` column, always run, per such table:
+```sql
+SELECT setval(pg_get_serial_sequence('table_name','id_column'),
+              (SELECT COALESCE(MAX(id_column), 0) FROM table_name));
+```
+and then actually exercise a write path that inserts into that table (don't
+just eyeball the row counts) before considering a migration complete —
+matching row counts alone will not catch this, since the migrated rows
+themselves are entirely correct and present; it's only the *next* insert
+that breaks.
 
 ## 12. Historical context / where to look for "why"
 
